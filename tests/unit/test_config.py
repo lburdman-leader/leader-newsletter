@@ -106,6 +106,25 @@ sources:
     assert [s.id for s in config.enabled_sources] == ["mike", "alpha", "zulu"]
 
 
+def test_the_entity_fidelity_guard_is_on_unless_it_is_switched_off(config_dir: Path) -> None:
+    """A corrupted brand name is an error in print, so the guard is opt-out."""
+    assert load_config(config_dir, env={}).newsletter.check_entity_fidelity is True
+    assert load_config(REAL_CONFIG_DIR, env={}).newsletter.check_entity_fidelity is True
+
+    (config_dir / "newsletter.yaml").write_text(
+        f"{MINIMAL_NEWSLETTER}  check_entity_fidelity: false\n", encoding="utf-8"
+    )
+    assert load_config(config_dir, env={}).newsletter.check_entity_fidelity is False
+
+
+def test_a_non_boolean_entity_fidelity_setting_is_reported(config_dir: Path) -> None:
+    (config_dir / "newsletter.yaml").write_text(
+        f"{MINIMAL_NEWSLETTER}  check_entity_fidelity: sometimes\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="check_entity_fidelity"):
+        load_config(config_dir, env={})
+
+
 def test_source_by_id(config_dir: Path) -> None:
     config = load_config(config_dir, env={})
     assert config.source_by_id("alpha").name == "Alpha"

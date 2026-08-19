@@ -49,12 +49,12 @@ Entertainment — a Latin American children's YouTube company moving into AI pro
 
 ## Last successful validation
 
-`2026-08-19` — full gate after the Spanish conversion (Stage 10):
+`2026-08-19` — full gate after the entity-fidelity guard (ADR-0033):
 
 | Check | Result |
 |-------|--------|
-| `ruff check .` / `ruff format --check .` | pass |
-| `python -m pytest` | **515 passed** in 3.6s |
+| `ruff check .` / `ruff format --check .` | pass (61 files formatted) |
+| `python -m pytest` | **542 passed** (was 515; +27 for the guard) |
 | `python scripts/validate_repo.py` | OK, 9 checks, 0 warnings |
 | `python scripts/audit_acceptance.py` | 20 criteria: 18 mechanical pass, 2 need a human |
 | CI workflow | valid, declares no secret, re-runs the suite with a deliberately invalid key |
@@ -95,6 +95,7 @@ src/newsletter/
   intelligence/
     editor.py               EditorialPayload, build_edition (pure), NewsletterEditor
     schemas.py              AssessmentPayload (wire) + Python-side bound enforcement
+    fidelity.py             entity-fidelity guard: model prose vs trusted source (ADR-0033)
     client.py               StructuredClient: no tools, store=False, bounded retries
     analyzer.py             ArticleAnalyzer: versioned prompt, cache, failure isolation
     prompts/article_analyzer_v{1,2}.md, prompts/newsletter_editor_v{1,2}.md  (v2 live)
@@ -125,7 +126,23 @@ Key invariants now enforced in code, not just documented:
 
 ## Known failures
 
-None.
+None outstanding. One shipped defect was found and closed: the W34 edition published the
+corrupted brand "UTube" where the source said "YouTube". A full fabrication audit of all eight
+stories found **no invented facts** — every URL, date, figure and named entity traced to the
+stored source — so this was entity corruption, not hallucination. It is now caught
+deterministically by `intelligence/fidelity.py` (ADR-0033). The published `output/2026-W34/`
+artifacts still contain the defect; they were not regenerated, because re-running would return
+the same cached assessment.
+
+Two lesser findings from the same audit remain open and are editorial, not mechanical:
+
+- "mil 500 millones" (W34, Roblox story) is Mexican-press numeral style rather than the
+  neutral Latin American Spanish the edition commits to. A neutral-numeral instruction belongs
+  in the editor prompt, which means a version bump — deliberately deferred, since the editor
+  prompt version is separate from the analyzer's and should be batched with any other v3 work.
+- One `why_it_matters` overreached: the source described OpenAI monitoring its **internal**
+  workloads, and the Spanish prose reads as stricter monitoring of model *usage*. The guard
+  cannot catch this class — it is unsupported inference, not a corrupted string.
 
 ## Environment (installed 2026-08-18)
 
@@ -174,7 +191,15 @@ Pins tightened to what was exercised: `openai>=3.0,<4`, `scrapling>=0.4,<0.5` (A
 ## Next concrete actions
 
 1. Read the next two editions as a reader, in Spanish, before changing any number.
-2. Spot-check summaries against the source articles, looking for fabrication.
-3. Add `OPENAI_API_KEY` to GitHub Secrets and enable the weekly cron once satisfied.
-4. Optional: a GitHub issue form that calls `newsletter submit`, so proposing a story does
+2. ~~Spot-check summaries against the source articles, looking for fabrication.~~ Done for
+   W34: no fabrication; one corrupted entity, now guarded (ADR-0033).
+3. Add `OPENAI_API_KEY` to GitHub Secrets. **The weekly cron is already enabled in
+   `weekly-newsletter.yml` (`0 6 * * 1`) and goes live the moment `main` reaches GitHub** —
+   it was dormant only because the repository had never been pushed. Without the secret the
+   scheduled run will fail rather than publish anything.
+4. Watch the guard's false-positive rate on the next two live runs. It drops stories silently
+   from the reader's point of view (the manifest records every drop, the edition does not), so
+   an edition that is unexpectedly thin should be checked against
+   `run_manifest.json` before `min_score` is blamed.
+5. Optional: a GitHub issue form that calls `newsletter submit`, so proposing a story does
    not require a terminal.

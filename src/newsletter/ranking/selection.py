@@ -35,6 +35,9 @@ REASON_CATEGORY_LIMIT = "category_limit"
 REASON_SOURCE_LIMIT = "source_limit"
 REASON_MAX_ITEMS = "max_items"
 REASON_DUPLICATE_EVENT = "duplicate_event"
+#: Not applied by :func:`select`. The entity-fidelity guard runs after selection
+#: and records its drops here, so ``reasons()`` still explains a thin edition.
+REASON_UNSUPPORTED_ENTITY = "unsupported_entity"
 
 
 @dataclass(frozen=True)

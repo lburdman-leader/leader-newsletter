@@ -25,6 +25,12 @@ newsletter:
   # analyzer event fingerprint (subject + action + object + date).
   collapse_events: true
 
+  # Reader-visible prose is checked, in Python, against the text ingestion
+  # collected for the story. A proper name the source never uses -- "UTube"
+  # where the article said "YouTube" -- drops the story before it is edited and
+  # discards the editorial polish after. No model is consulted.
+  check_entity_fidelity: true
+
   # No single publication may fill the edition, however well it scores.
   max_per_source: 2
 

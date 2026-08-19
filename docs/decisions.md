@@ -837,3 +837,64 @@ version: a future `v3` rubric will need recalibrating the same way, and the numb
 meaningless without knowing which rubric produced it. The audit's AC5 check and the
 renderer tests assert Spanish strings, so an accidental revert to English chrome fails the
 gate rather than shipping.
+
+---
+
+## 2026-08-19 · ADR-0033 · A story whose prose names an entity the source never mentions is dropped, not published
+
+**Decision.** `intelligence/fidelity.py` compares brand-shaped tokens in reader-visible model
+prose against the article's trusted text (`source_name` + `title` + `clean_text`, all of it
+ingested, none of it model-authored). A token is checked only if it carries an uppercase
+letter at a non-initial position and is not entirely uppercase, or if it mixes letters and
+digits. It is a violation when it does not appear in the trusted text under a
+case-insensitive match anchored at a left word boundary. The guard runs in two phases inside
+`run_pipeline`: before editorial synthesis it checks analyzer prose and drops the offending
+article from the line-up; after synthesis it checks editor prose and, on any violation,
+discards the polish and rebuilds the deterministic edition. Every drop lands in the run
+manifest as a `VALIDATE` error. `check_entity_fidelity` defaults to true.
+
+**Reason.** The first live Spanish edition published *"Esta política, que **UTube** aplicó
+anteriormente solo en YouTube Shorts…"*. A fabrication audit of all eight stories found no
+invented facts — every figure and named entity traced to the source — so the failure mode is
+not hallucinated claims but corrupted entity strings, and it appeared in the flagship
+YouTube-facing story. Nothing in the schema could catch it: `summary` is a free string, and
+strict Structured Outputs constrains shape, not content. This is exactly the class the
+architecture reserves for deterministic Python (rule 1), and it needs no model call.
+
+**Why the story is dropped rather than the run failed.** Assessments are cached under
+`content_hash:prompt_version:schema_version:model`. A fatal guard would therefore be
+unrecoverable: the re-run returns the identical cached prose and the edition stays blocked
+until someone manually invalidates the cache. Dropping one story is proportionate and matches
+the failure-isolation rule — a broken part must not kill the edition — while the manifest
+entry keeps it from being silent (rule 7). If the filter empties the line-up, the existing
+`NothingToPublish` path reports a quiet week rather than a crash.
+
+**Why the match is anchored on the left only.** The obvious rule — case-insensitive substring
+— cannot catch this defect at all, because `utube` *is* a substring of `youtube`, so any
+article mentioning YouTube would vouch for the corruption. A left word boundary fixes that.
+The right side stays open so a source writing `YouTubers` still supports prose writing
+`YouTube`. The asymmetry is deliberate: false negatives are tolerable, false positives delete
+a real story from the newspaper.
+
+**Why all-caps tokens are exempt.** The prose is Spanish and the sources are English, so any
+rule that survives translation must only test tokens translation does not touch. Brand names
+qualify; acronyms do not — `IA` is Spanish for `AI`, and `CEO`/`API` appear in Spanish prose
+whose English source may use different wording. Testing them would fire constantly on correct
+output.
+
+**Alternatives.** A prompt fix was rejected: the corruption sits in a story `summary`, which
+is analyzer output, so it would mean `article_analyzer_v3` — invalidating the entire v2
+assessment cache and forcing another `min_score` recalibration (ADR-0032), which would also
+destroy the two-edition baseline needed before the rubric is touched again. Letting the model
+self-check was rejected under ADR-0031's reasoning: the guarantee comes from the model having
+no tools. Recording the violation without acting on it was rejected because the defect would
+still reach the reader.
+
+**Consequences.** The edition can now be thinner than the score threshold alone would predict,
+so `selection.py` gained `REASON_UNSUPPORTED_ENTITY` and `articles_selected` is corrected to
+the surviving count. Three false-positive surfaces are known and accepted for now: hyphenated
+compounds (`YouTube-Shorts` in prose against `YouTube Shorts` in source), prose morphology
+longer than the source (`YouTubers` where the source writes only `YouTube`), and any
+alphanumeric identifier that reaches reader-visible prose — the last of these fired on the
+integration harness, whose fake headlines embedded a 16-character hex `article_id`. No prompt,
+schema version, score formula or threshold changed, so the v2 cache is intact.

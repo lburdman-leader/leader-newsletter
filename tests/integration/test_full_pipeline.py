@@ -228,6 +228,11 @@ class ScriptedAnalyzerClient:
 
 
 def editorial_response(article_ids: list[str]) -> FakeResponse:
+    """Polish for every story, keyed by position rather than by article id.
+
+    The ids are 16 hex characters, so printing one in a headline would look to
+    the entity-fidelity guard exactly like a fabricated product name.
+    """
     return FakeResponse(
         output_parsed=EditorialPayload(
             executive_summary=[
@@ -237,10 +242,10 @@ def editorial_response(article_ids: list[str]) -> FakeResponse:
             stories=[
                 StoryPolish(
                     article_id=article_id,
-                    headline=f"Edited headline for {article_id}",
+                    headline=f"Edited headline for story {position}",
                     why_it_matters="Sharpened interpretation for an enterprise reader.",
                 )
-                for article_id in article_ids
+                for position, article_id in enumerate(article_ids, start=1)
             ],
         )
     )
@@ -430,6 +435,139 @@ def test_a_failing_editor_costs_polish_not_the_edition(
     assert result.succeeded
     assert not result.edition.lead_story.headline.startswith("Edited headline")
     assert any(error.stage.value == "edit" for error in result.manifest.errors)
+
+
+# --------------------------------------------------------------------------- #
+# entity fidelity
+# --------------------------------------------------------------------------- #
+
+
+class CorruptingAnalyzerClient(ScriptedAnalyzerClient):
+    """The scripted analyst, but it mangles one brand name in the payout story.
+
+    "UTube" is the real defect this guard exists for: nothing was fabricated, a
+    name was corrupted, and the corruption is invisible to any check that only
+    compares facts.
+    """
+
+    def parse(self, *, instructions: str, content: str, schema: Any) -> tuple[Any, int]:
+        payload, calls = super().parse(instructions=instructions, content=content, schema=schema)
+        if "payout" in payload.summary.lower():
+            payload = payload.model_copy(
+                update={"summary": f"{payload.summary}. La medida alcanza a UTube."}
+            )
+        return payload, calls
+
+
+def run_with_corrupted_analyst(tmp_path: Path, http: FakeHttpClient, **config_overrides: Any):
+    config = make_config(tmp_path, **config_overrides)
+    context = RunContext.create(config, WINDOW, now=NOW)
+    client, _, _ = make_client(FakeResponse(output_parsed=None))
+
+    return run_pipeline(
+        context,
+        analyzer=ArticleAnalyzer(CorruptingAnalyzerClient()),
+        editor=_EchoEditor(client),
+        adapter_factory=adapter_factory(http),
+        now=NOW,
+    )
+
+
+def test_a_corrupted_brand_name_drops_the_story_but_not_the_edition(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    result = run_with_corrupted_analyst(tmp_path, http)
+
+    assert result.succeeded
+    assert ALPHA_2 not in [item.source_url for item in result.edition.all_items()]
+    assert ALPHA_1 in [item.source_url for item in result.edition.all_items()]
+
+
+def test_the_dropped_story_is_recorded_in_the_run_manifest(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """Nothing is ever dropped silently (PRD section 34)."""
+    result = run_with_corrupted_analyst(tmp_path, http)
+    recorded = [
+        error for error in result.manifest.errors if error.exception_class == "EntityFidelityError"
+    ]
+
+    assert len(recorded) == 1
+    assert recorded[0].stage.value == "validate"
+    assert recorded[0].source_id == "alpha"
+    assert "UTube" in recorded[0].message
+    assert ALPHA_2 in recorded[0].message
+    assert result.manifest.articles_selected == len(result.edition.all_items())
+
+
+def test_the_guard_can_be_switched_off_in_configuration(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    result = run_with_corrupted_analyst(tmp_path, http, check_entity_fidelity=False)
+
+    assert ALPHA_2 in [item.source_url for item in result.edition.all_items()]
+    assert not [
+        error for error in result.manifest.errors if error.exception_class == "EntityFidelityError"
+    ]
+
+
+def test_an_edition_of_nothing_but_corrupted_stories_is_a_quiet_week(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """Exit code 4, not a new failure mode: there is simply nothing to print."""
+
+    class AlwaysCorrupting(ScriptedAnalyzerClient):
+        def parse(self, *, instructions: str, content: str, schema: Any) -> tuple[Any, int]:
+            payload, calls = super().parse(
+                instructions=instructions, content=content, schema=schema
+            )
+            return payload.model_copy(update={"summary": f"{payload.summary}. Segun UTube."}), calls
+
+    config = make_config(tmp_path)
+    context = RunContext.create(config, WINDOW, now=NOW)
+    client, _, _ = make_client(FakeResponse(output_parsed=None))
+
+    with pytest.raises(NothingToPublish, match="never does"):
+        run_pipeline(
+            context,
+            analyzer=ArticleAnalyzer(AlwaysCorrupting()),
+            editor=_EchoEditor(client),
+            adapter_factory=adapter_factory(http),
+            now=NOW,
+        )
+
+
+def test_corrupted_editorial_polish_costs_the_polish_not_the_edition(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """The editor's own words are checked too, and only the polish is discarded."""
+
+    class CorruptingEditor(_EchoEditor):
+        def compose(self, selection, settings, window, *, now=None):  # type: ignore[override]
+            edition = super().compose(selection, settings, window, now=now)
+            lead = edition.lead_story.model_copy(update={"headline": "Lo que hizo UTube"})
+            return edition.model_copy(update={"lead_story": lead})
+
+    config = make_config(tmp_path)
+    context = RunContext.create(config, WINDOW, now=NOW)
+    client, _, _ = make_client(FakeResponse(output_parsed=None))
+
+    result = run_pipeline(
+        context,
+        analyzer=ArticleAnalyzer(ScriptedAnalyzerClient()),
+        editor=CorruptingEditor(client),
+        adapter_factory=adapter_factory(http),
+        now=NOW,
+    )
+
+    assert result.succeeded
+    assert len(result.edition.all_items()) == 3  # every story still published
+    assert not result.edition.lead_story.headline.startswith("Edited headline")
+    recorded = [
+        error for error in result.manifest.errors if error.exception_class == "EntityFidelityError"
+    ]
+    assert len(recorded) == 1
+    assert "headline says 'UTube'" in recorded[0].message
 
 
 # --------------------------------------------------------------------------- #

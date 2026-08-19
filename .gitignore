@@ -8,7 +8,9 @@ secrets/
 
 # --- generated editions --------------------------------------------------
 output/
-*.sqlite
+# The trailing glob also catches SQLite's WAL sidecars (-wal, -shm), which a
+# bare *.sqlite does not match and which appear whenever a run is interrupted.
+*.sqlite*
 *.sqlite3
 *.db
 

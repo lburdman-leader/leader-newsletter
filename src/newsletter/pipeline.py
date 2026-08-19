@@ -32,7 +32,13 @@ from newsletter.ingestion.http import HttpClient
 from newsletter.ingestion.submissions import SubmissionAdapter
 from newsletter.intelligence.analyzer import ArticleAnalyzer
 from newsletter.intelligence.client import StructuredClient, build_openai_client
-from newsletter.intelligence.editor import NewsletterEditor
+from newsletter.intelligence.editor import NewsletterEditor, build_edition
+from newsletter.intelligence.fidelity import (
+    EntityFidelityError,
+    describe_violations,
+    unsupported_in_assessment,
+    unsupported_in_edition,
+)
 from newsletter.logging_setup import get_logger, report, report_failure
 from newsletter.models import (
     NewsletterEdition,
@@ -49,7 +55,12 @@ from newsletter.normalization.filtering import filter_by_window
 from newsletter.persistence.sqlite import Database, PersistenceError
 from newsletter.ranking.dedupe import deduplicate
 from newsletter.ranking.scoring import rank_all
-from newsletter.ranking.selection import SelectionResult, select
+from newsletter.ranking.selection import (
+    REASON_UNSUPPORTED_ENTITY,
+    RejectedArticle,
+    SelectionResult,
+    select,
+)
 from newsletter.rendering.renderer import RenderError, write_edition
 
 logger = get_logger("pipeline")
@@ -191,6 +202,43 @@ def decide_submissions(
     return decisions
 
 
+def drop_unsupported_stories(
+    selection: SelectionResult, *, manifest: RunManifest, now: datetime
+) -> int:
+    """Remove selected stories whose analyst prose names an entity their source does not.
+
+    A corrupted proper name is not a cosmetic defect — ``UTube`` is a company
+    that does not exist — so the story goes rather than the edition, and the rest
+    of the line-up is published as usual. Nothing is dropped quietly: each drop
+    lands in the run manifest, on the console and in the selection's own
+    rejection reasons. Returns how many stories were dropped.
+    """
+    kept: list[RankedArticle] = []
+    for ranked in selection.selected:
+        violations = unsupported_in_assessment(ranked)
+        if not violations:
+            kept.append(ranked)
+            continue
+
+        detail = describe_violations(violations)
+        manifest.record_error(
+            PipelineStage.VALIDATE,
+            EntityFidelityError(f"{ranked.article.canonical_url}: {detail}"),
+            source_id=ranked.article.source_id,
+            now=now,
+        )
+        report_failure(
+            f'story "{ranked.article.title}" dropped: {detail}, which its source never does'
+        )
+        selection.rejected.append(RejectedArticle(ranked=ranked, reason=REASON_UNSUPPORTED_ENTITY))
+
+    dropped = len(selection.selected) - len(kept)
+    if dropped:
+        selection.selected = kept
+        manifest.articles_selected = len(kept)
+    return dropped
+
+
 def run_pipeline(
     context: RunContext,
     *,
@@ -311,6 +359,15 @@ def run_pipeline(
             f"({selection.reasons()})"
         )
 
+    # -- entity fidelity, before the editor sees anything ------------------- #
+    if config.newsletter.check_entity_fidelity:
+        drop_unsupported_stories(selection, manifest=manifest, now=stamp)
+        if selection.is_empty:
+            context.finish(now=stamp)
+            if database is not None:
+                database.save_run(manifest)
+            raise NothingToPublish("every selected story named an entity its own source never does")
+
     # -- editorial synthesis ------------------------------------------------ #
     if editor is None:
         editor = build_editor(config)
@@ -325,6 +382,23 @@ def run_pipeline(
         report_failure("editorial synthesis failed; published the deterministic edition")
     else:
         report("Editorial synthesis complete")
+
+    # -- entity fidelity, on what the editor wrote -------------------------- #
+    # Only when there is polish to judge: a fallback edition prints the
+    # ingested title and the configured source name, neither of which the
+    # model wrote.
+    if config.newsletter.check_entity_fidelity and editorial_error is None:
+        violations = unsupported_in_edition(edition, selection.selected)
+        if violations:
+            fidelity_error = EntityFidelityError(
+                f"editorial prose named unsupported entities: {describe_violations(violations)}"
+            )
+            manifest.record_error(PipelineStage.VALIDATE, fidelity_error, now=stamp)
+            report_failure(
+                f"editorial polish discarded: {describe_violations(violations)}, "
+                "which no published source does"
+            )
+            edition = build_edition(selection, config.newsletter, window, now=stamp)
 
     # -- validate and render ------------------------------------------------ #
     allowed = {ranked_article.article.canonical_url for ranked_article in selection.selected}

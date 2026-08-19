@@ -66,6 +66,10 @@ class NewsletterSettings(ValueModel):
     min_score: int = Field(default=70, ge=0, le=100)
     #: Collapse several articles covering one event, using the analyzer fingerprint.
     collapse_events: bool = True
+    #: Check reader-visible prose for named entities its own source never uses
+    #: ("UTube" where the article said "YouTube"). Deterministic, no model call.
+    #: Off only for debugging: a corrupted brand name is an error in print.
+    check_entity_fidelity: bool = True
     #: Per-category caps that prevent one topic monopolising the edition.
     section_limits: dict[TopicCategory, int] = Field(default_factory=dict)
     #: Cap per source, so no single publication can fill the edition. None means
