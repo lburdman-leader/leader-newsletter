@@ -667,3 +667,37 @@ submission usually shares its id with the article it becomes. Submissions are im
 `decide()` returns a copy — so the history of a decision is never overwritten in place.
 Writing the address guard surfaced a latent bug in `canonicalize_url`: an IPv6 literal lost
 its brackets, turning `https://[::1]/x` into malformed output. Fixed and tested.
+
+---
+
+## 2026-08-19 · ADR-0029 · The edition adopts a blue-and-paper newspaper style, designed before it was coded
+
+**Decision.** The HTML edition was redesigned from a reference the user supplied: vivid
+blue on warm off-white, a boxed grid, an issue block, numbered brief cards, and a filled
+sidebar. The design was authored first as a canvas (`design/*.dc.html`, published as an
+Artifact) and then ported into `newsletter.html.j2`. The canvas is the visual
+specification; the template is what ships.
+
+**Reason.** The previous template was a serif broadsheet with a red accent — a reasonable
+default, but nobody had chosen it. Designing first made two constraints visible before
+they cost implementation time: the reference is photo-led and this engine stores **no
+images**, and the edition must stay self-contained, which rules out a webfont. Both were
+resolved as design decisions rather than discovered as bugs:
+
+- the hero photograph became a filled accent block carrying the lead's *why it matters*,
+  so the interpretation inherits the visual mass the photo had;
+- the teaser thumbnails became numbered accent blocks, one per brief bullet;
+- the type is a system stack, because a webfont would look right on the canvas and wrong
+  in the product.
+
+**Alternatives.** Restyle the template directly (the photo and font problems would have
+surfaced halfway through, as rework); keep the serif broadsheet (nobody had chosen it).
+
+**Consequences.** The class vocabulary was preserved deliberately — `.lead`,
+`.read-original`, `.section-label`, `.story` — so every existing render assertion keeps
+testing the same guarantees through the redesign, and the whole suite passed the port
+without a single test change. Two template mechanics are worth knowing: the wordmark
+accents the **last word** of whatever masthead is configured, so the two-tone survives a
+renamed publication, and the sidebar always holds `sections[0]` with the rest below, which
+keeps the choice deterministic. The lead's category label comes from the edition's own
+section titles, falling back to the configured defaults.

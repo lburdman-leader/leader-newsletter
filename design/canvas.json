@@ -1,0 +1,55 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1040,
+      "h": 2320,
+      "title": "Edition \u2014 desktop",
+      "print": "fixed"
+    },
+    {
+      "file": "Mobile.dc.html",
+      "x": 1140,
+      "y": 0,
+      "w": 390,
+      "h": 1960,
+      "title": "Edition \u2014 phone"
+    },
+    {
+      "file": "Components.dc.html",
+      "x": 1630,
+      "y": 0,
+      "w": 760,
+      "h": 1500,
+      "title": "Vocabulary"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "sample-content",
+      "x": 0,
+      "y": -150,
+      "w": 420,
+      "text": "Sample stories, written to look like a real edition.\nReal editions are generated from the configured sources \u2014 every field shown here is one the engine actually produces."
+    },
+    {
+      "id": "no-photographs",
+      "x": 1140,
+      "y": -150,
+      "w": 380,
+      "text": "The reference is photo-driven; this engine stores no images and the HTML must stay self-contained.\nSo the hero photograph becomes a filled blue 'Why it matters' block, and the teaser thumbnails become numbered blocks."
+    },
+    {
+      "id": "system-fonts",
+      "x": 1630,
+      "y": -150,
+      "w": 380,
+      "text": "System font stack on purpose: the shipped HTML may not load external assets, so a webfont would look right here and wrong in the product."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

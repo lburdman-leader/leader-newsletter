@@ -37,3 +37,11 @@ Thumbs.db
 
 # --- claude code ---------------------------------------------------------
 .claude/settings.local.json
+
+# --- local tooling and design references ---------------------------------
+# gentle-ai skill registry cache: machine state, not project source.
+.atl/
+# Design reference images dropped in for visual direction.
+component.webp
+# Seeded design canvas: generated from the .dc.html sources, ~2 MB.
+intelligence-weekly-edition.html

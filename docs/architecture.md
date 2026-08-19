@@ -313,11 +313,17 @@ URL is re-validated as `http(s)`, checked against the ingested set when supplied
 URL hidden in prose fails the render (AC13). HTML autoescape is on with no `| safe`
 anywhere — a `<script>` tag in a scraped headline renders as text.
 
-**The artifact.** Masthead, issue line, executive brief, lead story with its own hierarchy,
-then category sections in a responsive grid. Every headline is a link; every story carries
-a visible `Read original →`; all external links use `target="_blank" rel="noopener
-noreferrer"`. Self-contained: inline CSS, no JavaScript, no external assets, plus a print
-stylesheet.
+**The artifact.** Blue-and-paper newspaper styling (ADR-0029), designed on a canvas in
+`design/` before being ported: an issue block and two-tone wordmark, the executive brief as
+numbered cards, the lead story beside a filled sidebar holding `sections[0]`, then the
+remaining sections as a card grid. Every headline is a link; every story carries a visible
+`Read original →`; all external links use `target="_blank" rel="noopener noreferrer"`.
+Self-contained: inline CSS, a system font stack, no JavaScript, no external assets, plus a
+print stylesheet.
+
+The engine has no images, so the weight a photograph would carry goes to the lead's *why it
+matters* block and to the accent fills. The wordmark accents the last word of whatever
+masthead is configured, so the two-tone survives a rename.
 
 **Verification** (ADR-0023). Tests read the *generated* output, and
 `tests/fixtures/expected_newsletter.{md,json,html}` are golden files refreshed by

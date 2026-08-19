@@ -23,8 +23,15 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+from newsletter.config import DEFAULT_SECTION_TITLES
 from newsletter.logging_setup import get_logger
-from newsletter.models import NewsletterEdition, RankedArticle, RunManifest, validate_public_url
+from newsletter.models import (
+    NewsletterEdition,
+    RankedArticle,
+    RunManifest,
+    TopicCategory,
+    validate_public_url,
+)
 from newsletter.ranking.scoring import score_components
 
 logger = get_logger("rendering")
@@ -131,8 +138,26 @@ def validate_edition_links(
 # --------------------------------------------------------------------------- #
 
 
+def category_titles_for(edition: NewsletterEdition) -> dict[TopicCategory, str]:
+    """Display title per category: the edition's own section titles win.
+
+    The lead story shows its category on the band, but the lead is not inside a
+    section, so the label has to come from somewhere. The edition already names
+    every category it publishes; defaults cover the rest.
+    """
+    return {**DEFAULT_SECTION_TITLES, **{s.category: s.title for s in edition.sections}}
+
+
 def render_html(edition: NewsletterEdition, *, tagline: str = "") -> str:
-    return build_environment().get_template(HTML_TEMPLATE).render(edition=edition, tagline=tagline)
+    return (
+        build_environment()
+        .get_template(HTML_TEMPLATE)
+        .render(
+            edition=edition,
+            tagline=tagline,
+            category_titles=category_titles_for(edition),
+        )
+    )
 
 
 def render_markdown(edition: NewsletterEdition) -> str:

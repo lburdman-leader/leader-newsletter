@@ -1,0 +1,225 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: inherit; text-decoration: none; }
+    a:hover { text-decoration: underline; text-underline-offset: 3px; }
+    @media print {
+      .edition { box-shadow: none; }
+    }
+  </style>
+</helmet>
+
+<div class="edition" style="--accent: {{accent}}; --paper: {{paper}}; --ink: #14161d; --muted: #5b606c; --rule: #d5d1c8; --card: #ffffff; --sans: 'Helvetica Neue', Helvetica, 'Arial Nova', Arial, 'Liberation Sans', sans-serif; width: 1040px; box-sizing: border-box; padding: 44px 44px 56px; background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5;">
+
+  <!-- ============================ MASTHEAD ============================ -->
+  <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); padding-bottom: 10px;">
+    <span>11 &ndash; 17 August 2026</span>
+    <span>Weekly briefing</span>
+  </div>
+
+  <div style="display: flex; align-items: stretch; gap: 20px; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); padding: 18px 0;">
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; width: 116px; padding: 10px 0; background: var(--accent); color: #ffffff; flex-shrink: 0;">
+      <div style="font-size: 44px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">W34</div>
+      <div style="font-size: 11px; letter-spacing: 0.22em; margin-top: 4px;">2026</div>
+    </div>
+    <div style="display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0;">
+      <div style="font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--muted);">AI &amp; Digital</div>
+      <div style="font-size: 62px; font-weight: 800; letter-spacing: -0.035em; line-height: 0.94; text-transform: uppercase;">Intelligence <span style="color: var(--accent);">Weekly</span></div>
+    </div>
+  </div>
+
+  <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 24px; padding: 10px 0 0; font-size: 12px; letter-spacing: 0.04em; color: var(--muted);">
+    <span>Platform, model and monetization intelligence for the week</span>
+    <span style="white-space: nowrap;">7 stories</span>
+  </div>
+
+  <!-- ========================= EXECUTIVE BRIEF ======================== -->
+  <div style="display: flex; align-items: center; gap: 12px; margin: 34px 0 14px;">
+    <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent);">Executive brief</span>
+    <span style="flex-grow: 1; height: 2px; background: var(--ink);"></span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px;">
+    <div style="display: flex; gap: 14px; background: var(--card); border: 1px solid var(--rule); padding: 18px;">
+      <div style="width: 38px; height: 38px; flex-shrink: 0; background: var(--accent); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800;">01</div>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45;">Two frontier labs cut input-token pricing within four days of each other; the cheaper tier now undercuts last year's flagship by roughly a third.</p>
+    </div>
+    <div style="display: flex; gap: 14px; background: var(--card); border: 1px solid var(--rule); padding: 18px;">
+      <div style="width: 38px; height: 38px; flex-shrink: 0; background: var(--accent); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800;">02</div>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45;">The Partner Program moves mid-size channels to a new short-form revenue tier in October, changing payout maths above 100,000 subscribers.</p>
+    </div>
+    <div style="display: flex; gap: 14px; background: var(--card); border: 1px solid var(--rule); padding: 18px;">
+      <div style="width: 38px; height: 38px; flex-shrink: 0; background: var(--accent); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800;">03</div>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45;">Enterprise video generation left preview with licensing that covers advertising use; on-premises deployment is promised for the first quarter.</p>
+    </div>
+  </div>
+
+  <!-- ===================== LEAD STORY + SIDEBAR ====================== -->
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 30px; margin-top: 34px; align-items: start;">
+
+    <!-- lead story -->
+    <div>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--accent); color: #ffffff; padding: 12px 18px;">
+        <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;">Lead story</span>
+        <span style="font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.85;">AI Models &amp; APIs</span>
+        <span style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;">94</span>
+      </div>
+
+      <h1 style="margin: 20px 0 0; font-size: 40px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.06; text-wrap: pretty;">
+        <a href="https://example.com/northwind-reasoning-model">Northwind AI ships a reasoning model at a third of last generation's price</a>
+      </h1>
+
+      <p style="margin: 16px 0 0; font-size: 17px; line-height: 1.5;">Northwind released a reasoning model priced 30 per cent below its previous generation, with a one-million-token context window and same-day availability through the public API. Rate limits double for annual contracts.</p>
+
+      <div style="margin: 20px 0 0; background: var(--accent); color: #ffffff; padding: 20px 22px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; opacity: 0.8; margin-bottom: 6px;">Why it matters</div>
+        <p style="margin: 0; font-size: 18px; line-height: 1.42; text-wrap: pretty;">Anyone running summarisation or extraction at volume should re-run their cost model this week: the same workload moves from a budget line to a rounding error, and migrating needs no prompt changes.</p>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 22px; margin-top: 20px;">
+        <div style="display: flex; gap: 9px; font-size: 14px; line-height: 1.4;"><span style="color: var(--accent); font-weight: 800;">&mdash;</span><span>30 per cent lower input pricing</span></div>
+        <div style="display: flex; gap: 9px; font-size: 14px; line-height: 1.4;"><span style="color: var(--accent); font-weight: 800;">&mdash;</span><span>One-million-token context window</span></div>
+        <div style="display: flex; gap: 9px; font-size: 14px; line-height: 1.4;"><span style="color: var(--accent); font-weight: 800;">&mdash;</span><span>Available same day via the public API</span></div>
+        <div style="display: flex; gap: 9px; font-size: 14px; line-height: 1.4;"><span style="color: var(--accent); font-weight: 800;">&mdash;</span><span>Rate limits double on annual contracts</span></div>
+        <div style="display: flex; gap: 9px; font-size: 14px; line-height: 1.4;"><span style="color: var(--accent); font-weight: 800;">&mdash;</span><span>No prompt changes required to migrate</span></div>
+        <div style="display: flex; gap: 9px; font-size: 14px; line-height: 1.4;"><span style="color: var(--accent); font-weight: 800;">&mdash;</span><span>On-premises option promised for Q1</span></div>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--rule); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">
+        <a href="https://example.com/northwind-reasoning-model" style="font-weight: 700; color: var(--ink);">Northwind AI</a>
+        <span>17 Aug 2026</span>
+        <a href="https://example.com/northwind-reasoning-model" style="margin-left: auto; font-weight: 700; color: var(--accent); white-space: nowrap;">Read original &rarr;</a>
+      </div>
+    </div>
+
+    <!-- blue sidebar -->
+    <div style="background: var(--accent); color: #ffffff; padding: 24px 22px;">
+      <div style="font-size: 20px; font-weight: 800; letter-spacing: -0.01em; padding-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.35);">YouTube Monetization</div>
+
+      <div style="padding: 18px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.35);">
+        <h3 style="margin: 0 0 8px; font-size: 17px; font-weight: 700; line-height: 1.22; text-wrap: pretty;">
+          <a href="https://example.com/payout-tier">Partner Program shifts mid-size channels to a new payout tier</a>
+        </h3>
+        <p style="margin: 0 0 10px; font-size: 13px; line-height: 1.45; opacity: 0.92;">Short-form revenue share moves from 45 to 50 per cent for channels above 100,000 subscribers in October, following a nine-month pilot in three markets.</p>
+        <p style="margin: 0; font-size: 13px; line-height: 1.45; opacity: 0.92;"><span style="font-weight: 700;">Why it matters:</span> anyone forecasting Q4 creator revenue is working from the old split.</p>
+        <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 12px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.85;">
+          <span style="font-weight: 700;">Tubewatch</span>
+          <span>16 Aug 2026</span>
+          <a href="https://example.com/payout-tier" style="margin-left: auto; font-weight: 700; white-space: nowrap;">Read original &rarr;</a>
+        </div>
+      </div>
+
+      <div style="padding: 18px 0 0;">
+        <h3 style="margin: 0 0 8px; font-size: 17px; font-weight: 700; line-height: 1.22; text-wrap: pretty;">
+          <a href="https://example.com/brand-deal-marketplace">Brand-deal marketplace opens to channels under 50,000 subscribers</a>
+        </h3>
+        <p style="margin: 0 0 10px; font-size: 13px; line-height: 1.45; opacity: 0.92;">The self-serve marketplace drops its subscriber floor and adds fixed-fee placements alongside revenue-share deals.</p>
+        <p style="margin: 0; font-size: 13px; line-height: 1.45; opacity: 0.92;"><span style="font-weight: 700;">Why it matters:</span> smaller channels get a priced route to sponsorship without an agency.</p>
+        <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 12px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.85;">
+          <span style="font-weight: 700;">Tubewatch</span>
+          <span>14 Aug 2026</span>
+          <a href="https://example.com/brand-deal-marketplace" style="margin-left: auto; font-weight: 700; white-space: nowrap;">Read original &rarr;</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================== SECTIONS ============================ -->
+  <div style="display: flex; align-items: center; gap: 12px; margin: 40px 0 18px;">
+    <span style="font-size: 20px; font-weight: 800; letter-spacing: -0.01em;">AI Video &amp; Creative AI</span>
+    <span style="flex-grow: 1; height: 2px; background: var(--ink);"></span>
+    <span style="font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);">2 stories</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px;">
+    <div style="background: var(--card); border: 1px solid var(--rule); border-top: 3px solid var(--accent); padding: 22px;">
+      <h3 style="margin: 0 0 10px; font-size: 21px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.18; text-wrap: pretty;">
+        <a href="https://example.com/vantage-video-enterprise">Vantage Studios opens its video model to enterprise customers</a>
+      </h3>
+      <p style="margin: 0 0 12px; font-size: 14px; line-height: 1.5;">Ten-second clips at 1080p with a commercial licence that covers advertising use. Pricing starts at forty dollars per hour of generated footage.</p>
+      <p style="margin: 0; padding-left: 12px; border-left: 3px solid var(--accent); font-size: 14px; line-height: 1.45; color: var(--muted);"><span style="font-weight: 700; color: var(--ink);">Why it matters:</span> in-house teams can now cost a campaign against a licence instead of a shoot.</p>
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">
+        <a href="https://example.com/vantage-video-enterprise" style="font-weight: 700; color: var(--ink);">Reel Report</a>
+        <span>15 Aug 2026</span>
+        <a href="https://example.com/vantage-video-enterprise" style="margin-left: auto; font-weight: 700; color: var(--accent); white-space: nowrap;">Read original &rarr;</a>
+      </div>
+    </div>
+
+    <div style="background: var(--card); border: 1px solid var(--rule); border-top: 3px solid var(--accent); padding: 22px;">
+      <h3 style="margin: 0 0 10px; font-size: 21px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.18; text-wrap: pretty;">
+        <a href="https://example.com/storyboard-tooling">Storyboard-to-shot tooling arrives in three editing suites</a>
+      </h3>
+      <p style="margin: 0 0 12px; font-size: 14px; line-height: 1.5;">Editors can generate shot variants from a storyboard frame without leaving the timeline; all three vendors ship it behind an opt-in flag.</p>
+      <p style="margin: 0; padding-left: 12px; border-left: 3px solid var(--accent); font-size: 14px; line-height: 1.45; color: var(--muted);"><span style="font-weight: 700; color: var(--ink);">Why it matters:</span> the generation step moves inside the tool teams already licence.</p>
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">
+        <a href="https://example.com/storyboard-tooling" style="font-weight: 700; color: var(--ink);">Cutroom Weekly</a>
+        <span>13 Aug 2026</span>
+        <a href="https://example.com/storyboard-tooling" style="margin-left: auto; font-weight: 700; color: var(--accent); white-space: nowrap;">Read original &rarr;</a>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 12px; margin: 36px 0 18px;">
+    <span style="font-size: 20px; font-weight: 800; letter-spacing: -0.01em;">AI in Business</span>
+    <span style="flex-grow: 1; height: 2px; background: var(--ink);"></span>
+    <span style="font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);">2 stories</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px;">
+    <div style="background: var(--card); border: 1px solid var(--rule); border-top: 3px solid var(--accent); padding: 22px;">
+      <h3 style="margin: 0 0 10px; font-size: 21px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.18; text-wrap: pretty;">
+        <a href="https://example.com/underwriting-triage">Insurers report the first measurable underwriting gains from model triage</a>
+      </h3>
+      <p style="margin: 0 0 12px; font-size: 14px; line-height: 1.5;">Two carriers published quarter-on-quarter figures showing faster submission triage without a rise in loss ratio.</p>
+      <p style="margin: 0; padding-left: 12px; border-left: 3px solid var(--accent); font-size: 14px; line-height: 1.45; color: var(--muted);"><span style="font-weight: 700; color: var(--ink);">Why it matters:</span> the first numbers a sceptical finance team can actually argue with.</p>
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">
+        <a href="https://example.com/underwriting-triage" style="font-weight: 700; color: var(--ink);">Meridian Review</a>
+        <span>12 Aug 2026</span>
+        <a href="https://example.com/underwriting-triage" style="margin-left: auto; font-weight: 700; color: var(--accent); white-space: nowrap;">Read original &rarr;</a>
+      </div>
+    </div>
+
+    <div style="background: var(--card); border: 1px solid var(--rule); border-top: 3px solid var(--accent); padding: 22px;">
+      <h3 style="margin: 0 0 10px; font-size: 21px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.18; text-wrap: pretty;">
+        <a href="https://example.com/model-version-clauses">Procurement teams start writing model-version clauses into contracts</a>
+      </h3>
+      <p style="margin: 0 0 12px; font-size: 14px; line-height: 1.5;">Sample clauses circulating this week pin a named model version and require notice before a vendor swaps it underneath a workload.</p>
+      <p style="margin: 0; padding-left: 12px; border-left: 3px solid var(--accent); font-size: 14px; line-height: 1.45; color: var(--muted);"><span style="font-weight: 700; color: var(--ink);">Why it matters:</span> silent model swaps are becoming a contractual matter, not an engineering surprise.</p>
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">
+        <a href="https://example.com/model-version-clauses" style="font-weight: 700; color: var(--ink);">Meridian Review</a>
+        <span>11 Aug 2026</span>
+        <a href="https://example.com/model-version-clauses" style="margin-left: auto; font-weight: 700; color: var(--accent); white-space: nowrap;">Read original &rarr;</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================== COLOPHON ============================ -->
+  <div style="margin-top: 44px; padding-top: 16px; border-top: 2px solid var(--ink); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);">
+    <span>AI &amp; Digital Intelligence Weekly &middot; Issue 2026-W34</span>
+    <span>Generated 18 Aug 2026 from 7 selected stories</span>
+  </div>
+  <p style="margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted);">Every headline links to its original source. Stories are selected by score, not by sponsorship.</p>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#1a44d6","options":["#1a44d6","#0f6b4f","#b3341f","#1c1c1c"],"section":"Palette"},"paper":{"editor":"color","default":"#f3f1ec","options":["#f3f1ec","#ffffff","#f2f4f8","#efeae1"],"section":"Palette"},"$preview":{"width":1040,"height":2320}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      accent: this.props.accent ?? '#1a44d6',
+      paper: this.props.paper ?? '#f3f1ec',
+    };
+  }
+}
+</script>
+</body>
+</html>

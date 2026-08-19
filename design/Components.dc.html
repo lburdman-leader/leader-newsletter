@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: inherit; text-decoration: none; }
+    a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  </style>
+</helmet>
+
+<div style="--accent: {{accent}}; --paper: #f3f1ec; --ink: #14161d; --muted: #5b606c; --rule: #d5d1c8; --card: #ffffff; --sans: 'Helvetica Neue', Helvetica, 'Arial Nova', Arial, 'Liberation Sans', sans-serif; width: 760px; box-sizing: border-box; padding: 36px; background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5;">
+
+  <div style="font-size: 26px; font-weight: 800; letter-spacing: -0.025em;">Edition vocabulary</div>
+  <p style="margin: 6px 0 28px; font-size: 13px; color: var(--muted); max-width: 62ch;">Every piece the template assembles, with the field it renders. Nothing here shows data the engine does not produce &mdash; there is no author, no image, no reading time.</p>
+
+  <!-- palette -->
+  <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;">Palette</div>
+  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 30px;">
+    <div>
+      <div style="height: 48px; background: var(--accent); border: 1px solid var(--rule);"></div>
+      <div style="font-size: 11px; margin-top: 5px; font-weight: 700;">accent</div>
+      <div style="font-size: 10px; color: var(--muted);">fills, rules, links</div>
+    </div>
+    <div>
+      <div style="height: 48px; background: #14161d; border: 1px solid var(--rule);"></div>
+      <div style="font-size: 11px; margin-top: 5px; font-weight: 700;">ink</div>
+      <div style="font-size: 10px; color: var(--muted);">#14161d</div>
+    </div>
+    <div>
+      <div style="height: 48px; background: #f3f1ec; border: 1px solid var(--rule);"></div>
+      <div style="font-size: 11px; margin-top: 5px; font-weight: 700;">paper</div>
+      <div style="font-size: 10px; color: var(--muted);">#f3f1ec</div>
+    </div>
+    <div>
+      <div style="height: 48px; background: #ffffff; border: 1px solid var(--rule);"></div>
+      <div style="font-size: 11px; margin-top: 5px; font-weight: 700;">card</div>
+      <div style="font-size: 10px; color: var(--muted);">#ffffff</div>
+    </div>
+    <div>
+      <div style="height: 48px; background: #5b606c; border: 1px solid var(--rule);"></div>
+      <div style="font-size: 11px; margin-top: 5px; font-weight: 700;">muted</div>
+      <div style="font-size: 10px; color: var(--muted);">meta, captions</div>
+    </div>
+  </div>
+
+  <!-- masthead lockup -->
+  <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;">Masthead lockup</div>
+  <div style="display: flex; align-items: stretch; gap: 16px; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); padding: 14px 0; margin-bottom: 8px;">
+    <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; width: 92px; padding: 8px 0; background: var(--accent); color: #ffffff; flex-shrink: 0;">
+      <div style="font-size: 32px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">W34</div>
+      <div style="font-size: 10px; letter-spacing: 0.2em; margin-top: 3px;">2026</div>
+    </div>
+    <div style="display: flex; flex-direction: column; justify-content: center; gap: 3px;">
+      <div style="font-size: 11px; letter-spacing: 0.26em; text-transform: uppercase; color: var(--muted);">AI &amp; Digital</div>
+      <div style="font-size: 44px; font-weight: 800; letter-spacing: -0.035em; line-height: 0.94; text-transform: uppercase;">Intelligence <span style="color: var(--accent);">Weekly</span></div>
+    </div>
+  </div>
+  <p style="margin: 0 0 30px; font-size: 12px; color: var(--muted);">Block splits <strong>issue_label</strong> on the hyphen. The wordmark is <strong>masthead</strong> with its last word in accent, so any configured masthead keeps the two-tone.</p>
+
+  <!-- section header -->
+  <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;">Section header</div>
+  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+    <span style="font-size: 20px; font-weight: 800; letter-spacing: -0.01em;">AI Models &amp; APIs</span>
+    <span style="flex-grow: 1; height: 2px; background: var(--ink);"></span>
+    <span style="font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);">3 stories</span>
+  </div>
+  <p style="margin: 0 0 30px; font-size: 12px; color: var(--muted);"><strong>section.title</strong> from the configured section titles; the count is <strong>section.items | length</strong>.</p>
+
+  <!-- brief card -->
+  <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;">Brief card</div>
+  <div style="display: flex; gap: 14px; background: var(--card); border: 1px solid var(--rule); padding: 18px; max-width: 360px; margin-bottom: 8px;">
+    <div style="width: 38px; height: 38px; flex-shrink: 0; background: var(--accent); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800;">01</div>
+    <p style="margin: 0; font-size: 14px; line-height: 1.45;">One bullet of the executive brief, as written by the editor.</p>
+  </div>
+  <p style="margin: 0 0 30px; font-size: 12px; color: var(--muted);">One per <strong>executive_summary</strong> bullet, numbered by loop index. Three across; four or five wrap to a second row.</p>
+
+  <!-- story card -->
+  <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;">Story card</div>
+  <div style="background: var(--card); border: 1px solid var(--rule); border-top: 3px solid var(--accent); padding: 22px; max-width: 420px; margin-bottom: 8px;">
+    <h3 style="margin: 0 0 10px; font-size: 21px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.18;">
+      <a href="https://example.com/story">The headline, which is always a link to the source</a>
+    </h3>
+    <p style="margin: 0 0 12px; font-size: 14px; line-height: 1.5;">The factual summary written by the analyst, two or three sentences long.</p>
+    <p style="margin: 0; padding-left: 12px; border-left: 3px solid var(--accent); font-size: 14px; line-height: 1.45; color: var(--muted);"><span style="font-weight: 700; color: var(--ink);">Why it matters:</span> the interpretation, kept visually separate from the facts.</p>
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);">
+      <a href="https://example.com/story" style="font-weight: 700; color: var(--ink);">Source name</a>
+      <span>15 Aug 2026</span>
+      <a href="https://example.com/story" style="margin-left: auto; font-weight: 700; color: var(--accent); white-space: nowrap;">Read original &rarr;</a>
+    </div>
+  </div>
+  <p style="margin: 0 0 30px; font-size: 12px; color: var(--muted);"><strong>headline</strong>, <strong>summary</strong>, <strong>why_it_matters</strong>, then <strong>source_name</strong> &middot; <strong>published_at</strong> &middot; the source link. Three links per story, all to <strong>source_url</strong>.</p>
+
+  <!-- lead band + why it matters -->
+  <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;">Lead furniture</div>
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--accent); color: #ffffff; padding: 12px 18px; max-width: 480px;">
+    <span style="font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;">Lead story</span>
+    <span style="font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.85;">Category</span>
+    <span style="font-size: 26px; font-weight: 800; line-height: 1;">94</span>
+  </div>
+  <div style="background: var(--accent); color: #ffffff; padding: 20px 22px; max-width: 480px; margin-top: 10px;">
+    <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; opacity: 0.8; margin-bottom: 6px;">Why it matters</div>
+    <p style="margin: 0; font-size: 18px; line-height: 1.42;">On the lead only, the interpretation is set as a filled block &mdash; this is what carries the visual weight the reference gives to its hero photograph.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 22px; margin-top: 14px; max-width: 480px;">
+    <div style="display: flex; gap: 9px; font-size: 14px;"><span style="color: var(--accent); font-weight: 800;">&mdash;</span><span>A key fact</span></div>
+    <div style="display: flex; gap: 9px; font-size: 14px;"><span style="color: var(--accent); font-weight: 800;">&mdash;</span><span>Up to eight, two columns</span></div>
+  </div>
+  <p style="margin: 10px 0 0; font-size: 12px; color: var(--muted);">The band carries <strong>category</strong> and <strong>score</strong>. Key facts appear on the lead only; section cards omit them.</p>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#1a44d6","options":["#1a44d6","#0f6b4f","#b3341f","#1c1c1c"],"section":"Palette"},"$preview":{"width":760,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#1a44d6' };
+  }
+}
+</script>
+</body>
+</html>
