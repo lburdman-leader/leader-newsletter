@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Any
@@ -39,6 +40,22 @@ logger = get_logger("normalization")
 
 #: Below this, there is nothing an analyzer could honestly assess.
 MIN_TEXT_LENGTH = 120
+
+#: A page that titles itself by its account -- "Grok (@grok) on X" -- is naming
+#: the author, not the story. Social platforms do this on every post.
+_ACCOUNT_TITLE = re.compile(r"^.{0,60}\(@[\w.]{1,30}\)\s+on\s+\S+$", re.IGNORECASE)
+_HANDLE_TITLE = re.compile(r"^@[\w.]{1,30}\s+on\s+\S+$", re.IGNORECASE)
+
+#: The other social shape: 'Grok on X: "the actual post ..."'. The wrapper is
+#: furniture; the quoted part is the story.
+_QUOTED_TITLE = re.compile(
+    r"^.{1,60}?\s+on\s+[^:]{1,30}:\s*[\"\u201c\u2018']\s*(?P<body>.+)$", re.DOTALL
+)
+
+#: A fallback headline stops here, on a word boundary.
+MAX_FALLBACK_HEADLINE = 120
+#: Below this a single sentence is too terse to stand as a headline.
+MIN_FALLBACK_HEADLINE = 40
 
 #: Containers tried in order when a source declares no content selector.
 CONTENT_SELECTORS: tuple[str, ...] = (
@@ -160,26 +177,82 @@ def extract_canonical_url(page: Selector, raw: RawArticle) -> str:
     return canonicalize_url(raw.final_url)
 
 
+def is_account_title(title: str) -> bool:
+    """True when a title names the account rather than the story."""
+    collapsed = collapse_inline_whitespace(title)
+    return bool(_ACCOUNT_TITLE.match(collapsed) or _HANDLE_TITLE.match(collapsed))
+
+
+def unwrap_social_title(title: str) -> str:
+    """Strip the 'Someone on Platform: "..."' wrapper social sites put on posts."""
+    match = _QUOTED_TITLE.match(title.strip())
+    if not match:
+        return title
+    body = match.group("body").strip()
+    return body.rstrip("\u201d\u2019\"'").rstrip(" .\u2026").strip() or title
+
+
+def headline_from_prose(text: str) -> str:
+    """A headline-sized opening from body prose, cut on a sentence or a word.
+
+    Used only as a fallback, when the page offers no headline of its own. It has
+    to be defensible rather than clever: the editorial pass normally rewrites it,
+    and when that pass fails this is what gets printed.
+    """
+    prose = collapse_inline_whitespace(unwrap_social_title(text))
+    if len(prose) <= MIN_FALLBACK_HEADLINE:
+        return prose
+
+    taken = ""
+    for sentence in re.split(r"(?<=[.!?])\s+", prose):
+        taken = f"{taken} {sentence}".strip() if taken else sentence
+        if len(taken) >= MIN_FALLBACK_HEADLINE:
+            break
+
+    if len(taken) <= MAX_FALLBACK_HEADLINE:
+        return taken
+    clipped = taken[:MAX_FALLBACK_HEADLINE].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return f"{clipped}\u2026"
+
+
 def extract_title(page: Selector, hint: DiscoveredArticle | None) -> str | None:
+    candidates: list[str] = []
     for selector, attribute in (
         ("meta[property='og:title']", "content"),
         ("meta[name='twitter:title']", "content"),
     ):
         value = _first_attr(page, selector, attribute)
         if value:
-            return collapse_inline_whitespace(value)
+            candidates.append(value)
 
     for document in _json_ld_documents(page):
         headline = document.get("headline")
         if isinstance(headline, str) and headline.strip():
-            return collapse_inline_whitespace(headline)
+            candidates.append(headline)
 
     for selector in ("h1", "title"):
         value = _first_text(page, selector)
         if value:
-            return value
+            candidates.append(value)
 
-    return collapse_inline_whitespace(hint.title_hint) if hint and hint.title_hint else None
+    if hint and hint.title_hint:
+        candidates.append(hint.title_hint)
+
+    for value in candidates:
+        if not is_account_title(value):
+            return headline_from_prose(unwrap_social_title(value))
+
+    # Every title on the page names the account. The description carries what was
+    # actually posted, which is the nearest thing to a headline the page has.
+    for selector, attribute in (
+        ("meta[property='og:description']", "content"),
+        ("meta[name='description']", "content"),
+    ):
+        description = _first_attr(page, selector, attribute)
+        if description:
+            return headline_from_prose(description)
+
+    return collapse_inline_whitespace(candidates[0]) if candidates else None
 
 
 def extract_published_at(page: Selector, hint: DiscoveredArticle | None) -> datetime | None:

@@ -18,9 +18,12 @@ from newsletter.normalization.article import (
     NormalizationError,
     compute_article_id,
     compute_content_hash,
+    headline_from_prose,
+    is_account_title,
     normalize_all,
     normalize_article,
     normalize_text,
+    unwrap_social_title,
 )
 
 RETRIEVED = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
@@ -327,3 +330,70 @@ def test_normalize_all_uses_hints_keyed_by_url() -> None:
     assert len(articles) == 1
     assert articles[0].published_at == PUBLISHED
     assert manifest.errors == []
+
+
+# --------------------------------------------------------------------------- #
+# headline fallback — a social page titles itself by its account
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "title",
+    ["Grok (@grok) on X", "@grok on X", "Some Long Product Name (@handle) on Bluesky"],
+)
+def test_a_title_that_names_the_account_is_recognised(title: str) -> None:
+    assert is_account_title(title) is True
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Asana cleared five years of engineering work in two weeks",
+        "Firefox's Smart Window promises a better AI browser",
+        "OpenAI expands ChatGPT Ads to 31 European markets",
+    ],
+)
+def test_a_real_headline_is_left_alone(title: str) -> None:
+    assert is_account_title(title) is False
+
+
+def test_an_account_title_falls_back_to_the_description() -> None:
+    """What a post says is a better headline than who posted it."""
+    head = (
+        '<meta property="og:title" content="Grok (@grok) on X">'
+        '<meta property="og:description" content="Homer had a lyre. You have Grok Imagine. '
+        'Create a scene from The Odyssey and win $100K.">' + DATE_META
+    )
+    article = normalize_article(make_raw(build_html(head=head, title_tag="")), make_source())
+    assert article.title == "Homer had a lyre. You have Grok Imagine."
+
+
+def test_the_social_wrapper_is_stripped_from_a_title() -> None:
+    assert unwrap_social_title('Grok on X: "Homer had a lyre and a plan"') == (
+        "Homer had a lyre and a plan"
+    )
+    assert unwrap_social_title("A normal headline") == "A normal headline"
+
+
+def test_an_account_title_survives_when_there_is_nothing_better() -> None:
+    """A poor headline still beats rejecting the article outright."""
+    head = '<meta property="og:title" content="Grok (@grok) on X">' + DATE_META
+    article = normalize_article(make_raw(build_html(head=head, title_tag="")), make_source())
+    assert article.title == "Grok (@grok) on X"
+
+
+def test_a_fallback_headline_is_cut_on_a_sentence() -> None:
+    prose = "The lab shipped a model. It costs less than the last one. Availability starts today."
+    assert headline_from_prose(prose) == "The lab shipped a model. It costs less than the last one."
+
+
+def test_a_fallback_headline_is_cut_on_a_word_when_the_sentence_runs_long() -> None:
+    prose = "The laboratory announced " + "a very substantial and detailed change " * 6
+    headline = headline_from_prose(prose)
+    assert len(headline) <= 121
+    assert headline.endswith("…")
+    assert not headline[:-1].endswith(" ")
+
+
+def test_a_short_headline_is_returned_whole() -> None:
+    assert headline_from_prose("Model ships today.") == "Model ships today."
