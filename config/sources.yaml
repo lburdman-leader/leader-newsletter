@@ -120,9 +120,57 @@ sources:
     priority: 5
     enabled: true
 
+  # --- Non-OpenAI model vendors, via trade press -------------------------
+  # None of the vendors the edition was missing publishes a feed: Anthropic,
+  # xAI, Moonshot/Kimi, Runway, Luma, Pika, Kling, Stability and Black Forest
+  # Labs all have none, and x.ai/news answers 403. The only reachable route to
+  # that beat is specialist trade press, which is what these two are for.
+  #
+  # category_hint stays ai_models for both. Both are general AI trade press, so
+  # hinting ai_video would mislabel the majority of what they publish; the
+  # analyzer still assigns AI_VIDEO per story from the existing taxonomy.
+  - id: unite-ai
+    name: Unite.AI
+    # The only enabled source that reports on Grok/xAI, Moonshot/Kimi and the
+    # generative video and image labs (Luma, Pika, Kling, Stability, Flux).
+    category_hint: ai_models
+    entrypoint: "https://www.unite.ai/feed/"
+    strategy: rss
+    priority: 6
+    enabled: true
+
+  - id: marktechpost
+    name: MarkTechPost
+    # Model and research releases -- open-weights drops and non-OpenAI vendor
+    # launches -- that the general tech press covers late or not at all.
+    category_hint: ai_models
+    entrypoint: "https://www.marktechpost.com/feed/"
+    strategy: rss
+    priority: 6
+    enabled: true
+
   # --- AI video and creative AI -----------------------------------------
-  # Disabled until Stage 2 verifies the DOM structure and date semantics;
-  # scrapling is also not installed yet.
+  # VERIFIED 2026-08-19 against the live site, and DISABLED on the evidence.
+  # Anthropic publishes no feed (/rss.xml, /feed.xml, /news/rss.xml and
+  # /news/feed all 404), so scrapling_static is the only option, and the
+  # selectors below are the real ones: they resolve all 14 index items to
+  # absolute URLs with titles. The date is what disqualifies the source.
+  #
+  #   * the index <time> elements carry NO datetime attribute -- only the text
+  #     "Aug 14, 2026", which is neither ISO 8601 nor RFC 2822, so
+  #     ingestion/dates.py returns None rather than inventing a date;
+  #   * Stage 3 cannot rescue it either. The article page has no
+  #     article:published_time, no datePublished JSON-LD and no <time> element
+  #     at all (20 meta tags, none of them a date). The only machine-readable
+  #     timestamp is a "publishedOn" field buried in an escaped Next.js RSC
+  #     payload inside a <script> string, which is not addressable by a CSS
+  #     selector and would break on any framework change.
+  #
+  # Undated articles are rejected by normalization and dropped by the
+  # authoritative window filter, so enabling this would cost one fetch per
+  # article and contribute exactly nothing. Re-enable only once Anthropic ships
+  # a feed or a machine-readable date; the assertions in
+  # tests/unit/test_ingestion_anthropic_news.py are the tripwire for that.
   - id: anthropic-news
     name: Anthropic News
     category_hint: ai_models
@@ -130,13 +178,18 @@ sources:
     strategy: scrapling_static
     priority: 7
     enabled: false
-    # Selectors are placeholders until Stage 2 verification confirms the DOM.
+    # Verified against tests/fixtures/sources/anthropic-news/index.html. The
+    # class names are build-hashed (PublicationList-module-scss-module__KxYrHG__
+    # ...), so the href prefix is the only stable handle. No date_attr: the
+    # <time> elements have no attribute to read.
     selectors:
-      index_item: "article"
-      link: "a"
+      link: 'a[href^="/news/"]'
       date: "time"
-      date_attr: "datetime"
 
+  # Disabled deliberately, not pending. Runway publishes no feed, and the site
+  # moved hosts recently, so a scraper here would be brittle by construction.
+  # Runway launches are covered by unite-ai above, which is a feed. Revisit only
+  # if that coverage proves too thin or too slow.
   - id: runway-research
     name: Runway Research
     category_hint: ai_video
@@ -144,7 +197,7 @@ sources:
     strategy: scrapling_static
     priority: 6
     enabled: false
-    # Selectors are placeholders until Stage 2 verification confirms the DOM.
+    # Placeholders: never verified against the live DOM, and not to be trusted.
     selectors:
       index_item: "article"
       link: "a"
