@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>Alpha Wire</title>
+  <link>https://alpha.example/</link>
+  <description>Integration fixture feed</description>
+  <item>
+    <title>Example Labs ships a cheaper reasoning model</title>
+    <link>https://alpha.example/news/reasoning-model</link>
+    <pubDate>Mon, 17 Aug 2026 10:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>Partner Program changes payout tiers for mid-size channels</title>
+    <link>https://alpha.example/news/payout-tiers</link>
+    <pubDate>Sun, 16 Aug 2026 08:30:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>An announcement from three weeks ago</title>
+    <link>https://alpha.example/news/old-announcement</link>
+    <pubDate>Mon, 27 Jul 2026 09:00:00 GMT</pubDate>
+  </item>
+</channel></rss>

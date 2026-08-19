@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Example AI Feed</title>
+    <link>https://feed.example/</link>
+    <description>Test fixture feed</description>
+
+    <item>
+      <title>Example Labs releases a new reasoning model</title>
+      <link>https://feed.example/news/model-release</link>
+      <pubDate>Mon, 17 Aug 2026 10:00:00 GMT</pubDate>
+      <guid>https://feed.example/news/model-release</guid>
+      <content:encoded><![CDATA[<p>Full article body carried by the feed.</p>]]></content:encoded>
+    </item>
+
+    <item>
+      <title>Old announcement from earlier in the month</title>
+      <link>https://feed.example/news/old-announcement</link>
+      <pubDate>Sat, 01 Aug 2026 09:00:00 GMT</pubDate>
+      <guid>https://feed.example/news/old-announcement</guid>
+    </item>
+
+    <item>
+      <title>Undated editorial note</title>
+      <link>https://feed.example/news/undated-note</link>
+      <guid>https://feed.example/news/undated-note</guid>
+    </item>
+
+    <item>
+      <title>Entry with a relative link</title>
+      <link>/news/relative-link</link>
+      <pubDate>Tue, 18 Aug 2026 05:00:00 GMT</pubDate>
+      <guid>relative-1</guid>
+    </item>
+
+    <item>
+      <title>Monetization policy update</title>
+      <link>https://feed.example/news/monetization-update</link>
+      <pubDate>Tue, 18 Aug 2026 06:30:00 GMT</pubDate>
+      <guid>https://feed.example/news/monetization-update</guid>
+      <description>Short summary only.</description>
+    </item>
+  </channel>
+</rss>

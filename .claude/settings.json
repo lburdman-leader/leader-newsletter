@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "acceptEdits",
+
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "TodoWrite",
+      "Task",
+      "Agent",
+      "WebFetch",
+      "WebSearch",
+
+      "Bash(pwd)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(diff:*)",
+      "Bash(which:*)",
+      "Bash(sed:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(touch:*)",
+      "Bash(echo:*)",
+      "Bash(python --version)",
+      "Bash(python -c:*)",
+
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch --show-current)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git config --get:*)",
+
+      "Bash(python -m pytest:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff check:*)",
+      "Bash(ruff format:*)",
+      "Bash(python -m ruff:*)",
+      "Bash(python scripts/validate_repo.py:*)",
+      "Bash(python -m newsletter validate:*)",
+      "Bash(python -m newsletter sources:*)",
+      "Bash(python -m newsletter run --dry-run:*)"
+    ],
+
+    "ask": [
+      "Skill",
+
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git restore:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "Bash(git branch:*)",
+      "Bash(git tag:*)",
+      "Bash(git remote:*)",
+      "Bash(git init:*)",
+
+      "Bash(gh pr:*)",
+      "Bash(gh repo:*)",
+      "Bash(gh workflow:*)",
+      "Bash(gh release:*)",
+      "Bash(gh secret:*)",
+
+      "Bash(pip install:*)",
+      "Bash(pip uninstall:*)",
+      "Bash(python -m pip install:*)",
+      "Bash(python -m pip uninstall:*)",
+      "Bash(uv add:*)",
+      "Bash(uv remove:*)",
+      "Bash(uv pip install:*)",
+      "Bash(poetry add:*)",
+      "Bash(poetry remove:*)",
+
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(del:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)"
+    ],
+
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Edit(./**/.env)",
+      "Edit(./**/.env.*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./secrets/**)",
+      "Edit(./secrets/**)",
+      "Read(//~/.ssh/**)",
+      "Edit(//~/.ssh/**)",
+      "Read(//~/.aws/**)",
+      "Edit(//~/.aws/**)",
+      "Read(//~/.config/gcloud/**)",
+      "Edit(//~/.config/gcloud/**)",
+
+      "Bash(curl * | sh)",
+      "Bash(curl * | bash)",
+      "Bash(rm -rf /*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)"
+    ]
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/claude_guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/validate_repo.py --quiet",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

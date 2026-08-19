@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI &amp; Digital Intelligence Weekly — 2026-W34</title>
+<meta name="description" content="Weekly enterprise intelligence briefing for 11 Aug 2026 to 18 Aug 2026.">
+<style>
+  :root {
+    --ink: #14110f;
+    --ink-soft: #4a4440;
+    --ink-faint: #767068;
+    --paper: #fbfaf8;
+    --rule: #d9d3ca;
+    --rule-strong: #14110f;
+    --accent: #8a1c1c;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", Times, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem 4rem;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .edition { max-width: 62rem; margin: 0 auto; }
+
+  a { color: inherit; }
+  a:hover, a:focus { color: var(--accent); }
+
+  /* ---------- masthead ---------- */
+  .masthead { text-align: center; padding-bottom: 1rem; border-bottom: 3px double var(--rule-strong); }
+  .masthead h1 {
+    font-family: var(--serif);
+    font-size: clamp(2rem, 6vw, 3.4rem);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0 0 0.5rem;
+    line-height: 1.05;
+  }
+  .masthead .tagline {
+    font-size: 0.82rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 0.9rem;
+  }
+  .masthead .issue-line {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem 1.25rem;
+    font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--rule); padding-top: 0.75rem;
+  }
+
+  /* ---------- section headings ---------- */
+  .section-label {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 2.5rem 0 0.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+
+  /* ---------- executive brief ---------- */
+  .brief ul { margin: 0; padding-left: 1.1rem; }
+  .brief li { margin-bottom: 0.5rem; font-size: 1.02rem; }
+  .brief li::marker { color: var(--accent); }
+
+  /* ---------- lead story ---------- */
+  .lead { padding-bottom: 1.75rem; border-bottom: 3px double var(--rule-strong); }
+  .lead h2 {
+    font-family: var(--serif);
+    font-size: clamp(1.7rem, 4.4vw, 2.7rem);
+    line-height: 1.14;
+    margin: 0 0 0.75rem;
+    font-weight: 700;
+  }
+  .lead h2 a { text-decoration: none; }
+  .lead h2 a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .lead .summary { font-family: var(--serif); font-size: 1.14rem; margin: 0 0 1rem; }
+
+  .why {
+    border-left: 3px solid var(--accent);
+    padding: 0.15rem 0 0.15rem 0.9rem;
+    margin: 0 0 1rem;
+    color: var(--ink-soft);
+  }
+  .why strong {
+    display: block;
+    font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 0.15rem;
+  }
+
+  .facts { margin: 0 0 1rem; padding-left: 1.1rem; font-size: 0.95rem; color: var(--ink-soft); }
+  .facts li { margin-bottom: 0.25rem; }
+
+  /* ---------- meta line ---------- */
+  .meta {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.85rem;
+    font-size: 0.8rem; letter-spacing: 0.04em;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--rule);
+    padding-top: 0.6rem;
+  }
+  .meta .source { font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.1em; }
+  .read-original { margin-left: auto; font-weight: 700; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .read-original:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ---------- story grid ---------- */
+  .stories { display: grid; grid-template-columns: 1fr; gap: 1.75rem; }
+  @media (min-width: 46rem) { .stories { grid-template-columns: 1fr 1fr; gap: 2rem 2.5rem; } }
+
+  .story h3 {
+    font-family: var(--serif);
+    font-size: 1.28rem; line-height: 1.22; margin: 0 0 0.5rem; font-weight: 700;
+  }
+  .story h3 a { text-decoration: none; }
+  .story h3 a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .story .summary { margin: 0 0 0.75rem; font-size: 0.97rem; }
+
+  /* ---------- footer ---------- */
+  .colophon {
+    margin-top: 3rem; padding-top: 1rem;
+    border-top: 3px double var(--rule-strong);
+    font-size: 0.78rem; color: var(--ink-faint); text-align: center;
+  }
+  .colophon p { margin: 0.3rem 0; }
+
+  @media print {
+    body { background: #fff; padding: 0; font-size: 11pt; }
+    .read-original { color: #000; }
+    .stories { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<main class="edition">
+
+  <header class="masthead">
+    <h1>AI &amp; Digital Intelligence Weekly</h1>
+    <p class="tagline">Platform, model and monetization intelligence for the week</p>
+    <div class="issue-line">
+      <span>Issue 2026-W34</span>
+      <span>11 Aug 2026 &ndash; 18 Aug 2026</span>
+      <span>4 stories</span>
+    </div>
+  </header>
+
+  <section class="brief" aria-labelledby="brief-heading">
+    <h2 class="section-label" id="brief-heading">Executive Brief</h2>
+    <ul>
+      <li>Example Labs ships a reasoning model (Wire Example)</li>
+      <li>Video model opens to enterprises (Reel Report)</li>
+      <li>Ad rates shift for mid-size channels (Tubewatch)</li>
+      <li>Second model launch of the week (Wire Example)</li>
+    </ul>
+  </section>
+
+  <article class="lead" aria-labelledby="lead-heading">
+    <h2 class="section-label">Lead Story</h2>
+    <h2 id="lead-heading">
+      <a href="https://news.example/story-1" target="_blank" rel="noopener noreferrer">Example Labs ships a reasoning model</a>
+    </h2>
+    <p class="summary">Factual summary of: Example Labs ships a reasoning model.</p>
+    <p class="why"><strong>Why it matters</strong>It changes what enterprise teams pay and plan for.</p>
+    <ul class="facts">
+      <li>Available today</li>
+      <li>30% cheaper</li>
+    </ul>
+    <p class="meta">
+      <span class="source"><a href="https://news.example/story-1" target="_blank" rel="noopener noreferrer">Wire Example</a></span>
+      <span>17 Aug 2026</span>
+      <a class="read-original" href="https://news.example/story-1" target="_blank" rel="noopener noreferrer">Read original &rarr;</a>
+    </p>
+  </article>
+
+  <section aria-labelledby="section-1">
+    <h2 class="section-label" id="section-1">AI Models &amp; APIs</h2>
+    <div class="stories">
+      <article class="story">
+        <h3>
+          <a href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Second model launch of the week</a>
+        </h3>
+        <p class="summary">Factual summary of: Second model launch of the week.</p>
+        <p class="why"><strong>Why it matters</strong>It changes what enterprise teams pay and plan for.</p>
+        <p class="meta">
+          <span class="source"><a href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Wire Example</a></span>
+          <span>14 Aug 2026</span>
+          <a class="read-original" href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Read original &rarr;</a>
+        </p>
+      </article>
+    </div>
+  </section>
+  <section aria-labelledby="section-2">
+    <h2 class="section-label" id="section-2">AI Video &amp; Creative AI</h2>
+    <div class="stories">
+      <article class="story">
+        <h3>
+          <a href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Video model opens to enterprises</a>
+        </h3>
+        <p class="summary">Factual summary of: Video model opens to enterprises.</p>
+        <p class="why"><strong>Why it matters</strong>It changes what enterprise teams pay and plan for.</p>
+        <p class="meta">
+          <span class="source"><a href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Reel Report</a></span>
+          <span>16 Aug 2026</span>
+          <a class="read-original" href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Read original &rarr;</a>
+        </p>
+      </article>
+    </div>
+  </section>
+  <section aria-labelledby="section-3">
+    <h2 class="section-label" id="section-3">YouTube Monetization</h2>
+    <div class="stories">
+      <article class="story">
+        <h3>
+          <a href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Ad rates shift for mid-size channels</a>
+        </h3>
+        <p class="summary">Factual summary of: Ad rates shift for mid-size channels.</p>
+        <p class="why"><strong>Why it matters</strong>It changes what enterprise teams pay and plan for.</p>
+        <p class="meta">
+          <span class="source"><a href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Tubewatch</a></span>
+          <span>15 Aug 2026</span>
+          <a class="read-original" href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Read original &rarr;</a>
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <footer class="colophon">
+    <p>AI &amp; Digital Intelligence Weekly &middot; Issue 2026-W34</p>
+    <p>Generated 18 Aug 2026 at 09:00 UTC from 4 selected stories.</p>
+    <p>Every headline links to its original source. Nothing in this edition is behind a paywall of ours.</p>
+  </footer>
+
+</main>
+</body>
+</html>

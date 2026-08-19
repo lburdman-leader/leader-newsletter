@@ -1,0 +1,94 @@
+{
+  "edition_id": "2026-W34",
+  "masthead": "AI & Digital Intelligence Weekly",
+  "issue_label": "2026-W34",
+  "period_start": "2026-08-11T00:00:00Z",
+  "period_end": "2026-08-18T00:00:00Z",
+  "executive_summary": [
+    "Example Labs ships a reasoning model (Wire Example)",
+    "Video model opens to enterprises (Reel Report)",
+    "Ad rates shift for mid-size channels (Tubewatch)",
+    "Second model launch of the week (Wire Example)"
+  ],
+  "lead_story": {
+    "article_id": "art1",
+    "headline": "Example Labs ships a reasoning model",
+    "category": "ai_models",
+    "source_name": "Wire Example",
+    "source_url": "https://news.example/story-1",
+    "published_at": "2026-08-17T09:00:00Z",
+    "summary": "Factual summary of: Example Labs ships a reasoning model.",
+    "why_it_matters": "It changes what enterprise teams pay and plan for.",
+    "key_facts": [
+      "Available today",
+      "30% cheaper"
+    ],
+    "score": 89
+  },
+  "sections": [
+    {
+      "category": "ai_models",
+      "title": "AI Models & APIs",
+      "items": [
+        {
+          "article_id": "art4",
+          "headline": "Second model launch of the week",
+          "category": "ai_models",
+          "source_name": "Wire Example",
+          "source_url": "https://news.example/story-4",
+          "published_at": "2026-08-14T09:00:00Z",
+          "summary": "Factual summary of: Second model launch of the week.",
+          "why_it_matters": "It changes what enterprise teams pay and plan for.",
+          "key_facts": [
+            "Available today",
+            "30% cheaper"
+          ],
+          "score": 86
+        }
+      ]
+    },
+    {
+      "category": "ai_video",
+      "title": "AI Video & Creative AI",
+      "items": [
+        {
+          "article_id": "art2",
+          "headline": "Video model opens to enterprises",
+          "category": "ai_video",
+          "source_name": "Reel Report",
+          "source_url": "https://news.example/story-2",
+          "published_at": "2026-08-16T09:00:00Z",
+          "summary": "Factual summary of: Video model opens to enterprises.",
+          "why_it_matters": "It changes what enterprise teams pay and plan for.",
+          "key_facts": [
+            "Available today",
+            "30% cheaper"
+          ],
+          "score": 88
+        }
+      ]
+    },
+    {
+      "category": "youtube_monetization",
+      "title": "YouTube Monetization",
+      "items": [
+        {
+          "article_id": "art3",
+          "headline": "Ad rates shift for mid-size channels",
+          "category": "youtube_monetization",
+          "source_name": "Tubewatch",
+          "source_url": "https://news.example/story-3",
+          "published_at": "2026-08-15T09:00:00Z",
+          "summary": "Factual summary of: Ad rates shift for mid-size channels.",
+          "why_it_matters": "It changes what enterprise teams pay and plan for.",
+          "key_facts": [
+            "Available today",
+            "30% cheaper"
+          ],
+          "score": 87
+        }
+      ]
+    }
+  ],
+  "generated_at": "2026-08-18T09:00:00Z"
+}

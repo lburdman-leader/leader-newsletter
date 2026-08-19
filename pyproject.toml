@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "weekly-intelligence-newsletter"
+version = "0.1.0"
+description = "Weekly enterprise intelligence newspaper generated from a controlled set of public sources"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "feedparser>=6.0",
+    "jinja2>=3.1",
+    "openai>=3.0,<4",
+    "scrapling>=0.4,<0.5",
+    # Windows has no system tz database; zoneinfo needs this for the date window.
+    "tzdata>=2024.1; platform_system == 'Windows'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+newsletter = "newsletter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+newsletter = ["rendering/templates/*.j2", "intelligence/prompts/*.md"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = [
+    "error::DeprecationWarning:newsletter.*",
+    # lxml (pulled in by scrapling) warns about its own legacy option.
+    "ignore:The 'strip_cdata' option:DeprecationWarning",
+]

@@ -1,0 +1,108 @@
+name: Weekly newsletter
+
+# Generates an edition and uploads it as a workflow artifact.
+#
+# It deliberately does not email, deploy, publish, commit or push anything: the
+# edition is produced, retained, and collected by a human. Widening that is a
+# separate, explicit decision.
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: "Window start (YYYY-MM-DD). Leave empty for the configured default."
+        required: false
+        type: string
+      to_date:
+        description: "Window end (YYYY-MM-DD, inclusive). Leave empty for the default."
+        required: false
+        type: string
+      dry_run:
+        description: "Fetch sources and run the deterministic stages only. No OpenAI calls."
+        required: false
+        default: false
+        type: boolean
+
+  schedule:
+    # Mondays at 06:00 UTC. Adjust or remove; the cadence is configuration, and
+    # `window_days` in config/newsletter.yaml must stay consistent with it.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-newsletter
+  cancel-in-progress: false
+
+jobs:
+  edition:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Validate configuration
+        run: python -m newsletter validate
+
+      - name: Restore the assessment cache
+        # The cache is an optimisation, never a correctness requirement: a miss
+        # costs money and time, not accuracy.
+        uses: actions/cache@v4
+        with:
+          path: newsletter.sqlite
+          key: newsletter-db-${{ github.run_id }}
+          restore-keys: |
+            newsletter-db-
+
+      - name: Generate the edition
+        id: run
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LOG_LEVEL: INFO
+        run: |
+          set +e
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            python -m newsletter run --dry-run
+          elif [ -n "${{ inputs.from_date }}" ] && [ -n "${{ inputs.to_date }}" ]; then
+            python -m newsletter run --from "${{ inputs.from_date }}" --to "${{ inputs.to_date }}"
+          else
+            python -m newsletter run
+          fi
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          # Exit code 4 means the week was quiet: a real outcome, not a breakage.
+          if [ "$status" -eq 4 ]; then
+            echo "::notice title=Nothing to publish::No story cleared the threshold this week."
+            exit 0
+          fi
+          exit $status
+
+      - name: Upload the edition
+        if: steps.run.outputs.status == '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: newsletter-edition
+          path: output/**
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload the run manifest on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-manifest-failed
+          path: output/**/run_manifest.json
+          if-no-files-found: ignore
+          retention-days: 14

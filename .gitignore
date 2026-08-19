@@ -1,0 +1,39 @@
+# --- secrets -------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- generated editions --------------------------------------------------
+output/
+*.sqlite
+*.sqlite3
+*.db
+
+# --- python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.eggs/
+*.egg-info/
+build/
+dist/
+
+# --- tooling -------------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- editors and os ------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- claude code ---------------------------------------------------------
+.claude/settings.local.json

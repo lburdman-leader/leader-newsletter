@@ -1,0 +1,132 @@
+# Controlled source list.
+#
+# PROVISIONAL: these entrypoints are a starting set and have NOT been verified
+# against the live web yet. Stage 2 verifies each one (feed availability, date
+# semantics, selectors) via the /add-source skill and the source-researcher
+# subagent, and only then should a source be trusted in a live run.
+#
+# strategy: rss | scrapling_static | scrapling_dynamic | scrapling_stealth
+#   Always pick the cheapest option that actually works, in that order.
+#   The strategy is static configuration; a model never chooses it at runtime.
+# priority: 0-10, added directly to the deterministic score.
+# category_hint: a hint for the analyzer, not the final category.
+#
+# selectors (scrapling_* strategies only):
+#   index_item  container for one item on the index page, e.g. "article.card"
+#   link        anchor inside the container, e.g. "a.card-link"  (default: "a")
+#   title       optional title element inside the container
+#   date        optional element holding the publication date
+#   date_attr   attribute on that element to read (default: "datetime")
+# options:
+#   max_articles      per-source cap (default 50)
+#   use_feed_content  rss only: use the body carried by the feed, skipping a fetch
+#
+# An item whose date cannot be read is kept, never given an invented date; the
+# authoritative time filter runs in Stage 3 on the normalized article.
+
+sources:
+  # --- YouTube -----------------------------------------------------------
+  - id: youtube-official-blog
+    name: YouTube Official Blog
+    category_hint: youtube_platform
+    entrypoint: "https://blog.youtube/rss/"
+    strategy: rss
+    priority: 10
+    enabled: true
+
+  - id: tubefilter
+    name: Tubefilter
+    category_hint: youtube_monetization
+    entrypoint: "https://www.tubefilter.com/feed/"
+    strategy: rss
+    priority: 7
+    enabled: true
+
+  # --- AI models and APIs ------------------------------------------------
+  - id: openai-news
+    name: OpenAI News
+    category_hint: ai_models
+    entrypoint: "https://openai.com/news/rss.xml"
+    strategy: rss
+    priority: 10
+    enabled: true
+
+  - id: google-deepmind-blog
+    name: Google DeepMind Blog
+    category_hint: ai_models
+    entrypoint: "https://deepmind.google/blog/rss.xml"
+    strategy: rss
+    priority: 8
+    enabled: true
+
+  - id: huggingface-blog
+    name: Hugging Face Blog
+    category_hint: ai_models
+    entrypoint: "https://huggingface.co/blog/feed.xml"
+    strategy: rss
+    priority: 7
+    enabled: true
+
+  - id: arstechnica-ai
+    name: Ars Technica AI
+    category_hint: ai_models
+    entrypoint: "https://arstechnica.com/ai/feed/"
+    strategy: rss
+    priority: 6
+    enabled: true
+
+  # --- AI business -------------------------------------------------------
+  - id: techcrunch-ai
+    name: TechCrunch AI
+    category_hint: ai_business
+    entrypoint: "https://techcrunch.com/category/artificial-intelligence/feed/"
+    strategy: rss
+    priority: 6
+    enabled: true
+
+  - id: venturebeat-ai
+    name: VentureBeat AI
+    category_hint: ai_business
+    entrypoint: "https://venturebeat.com/category/ai/feed/"
+    strategy: rss
+    priority: 6
+    enabled: true
+
+  - id: theverge-ai
+    name: The Verge AI
+    category_hint: ai_business
+    entrypoint: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+    strategy: rss
+    priority: 5
+    enabled: true
+
+  # --- AI video and creative AI -----------------------------------------
+  # Disabled until Stage 2 verifies the DOM structure and date semantics;
+  # scrapling is also not installed yet.
+  - id: anthropic-news
+    name: Anthropic News
+    category_hint: ai_models
+    entrypoint: "https://www.anthropic.com/news"
+    strategy: scrapling_static
+    priority: 9
+    enabled: false
+    # Selectors are placeholders until Stage 2 verification confirms the DOM.
+    selectors:
+      index_item: "article"
+      link: "a"
+      date: "time"
+      date_attr: "datetime"
+
+  - id: runway-research
+    name: Runway Research
+    category_hint: ai_video
+    entrypoint: "https://runwayml.com/research"
+    strategy: scrapling_static
+    priority: 7
+    enabled: false
+    # Selectors are placeholders until Stage 2 verification confirms the DOM.
+    selectors:
+      index_item: "article"
+      link: "a"
+      date: "time"
+      date_attr: "datetime"

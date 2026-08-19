@@ -1,0 +1,57 @@
+{#
+  The same edition as Markdown, rendered from the same NewsletterEdition object.
+
+  Whitespace is load-bearing here: a `---` on the line directly after text is a
+  setext heading, not a horizontal rule, so every rule keeps a blank line above it.
+  Headlines pass through `md` so a bracket cannot break a link.
+#}
+# {{ edition.masthead | md }}
+
+**Issue {{ edition.issue_label | md }}** · {{ edition.period_start | issue_date }} – {{ edition.period_end | issue_date }} · {{ edition.all_items() | length }} stories
+
+---
+
+## Executive Brief
+
+{% for bullet in edition.executive_summary %}
+- {{ bullet | md }}
+{% endfor %}
+
+---
+
+## Lead Story
+
+{% set lead = edition.lead_story %}
+### [{{ lead.headline | md }}]({{ lead.source_url }})
+
+{{ lead.summary | md }}
+
+**Why it matters:** {{ lead.why_it_matters | md }}
+
+{% if lead.key_facts %}
+{% for fact in lead.key_facts %}
+- {{ fact | md }}
+{% endfor %}
+
+{% endif %}
+{{ lead.source_name | md }} · {{ lead.published_at | issue_date }} · [Read original →]({{ lead.source_url }})
+
+{% for section in edition.sections %}
+---
+
+## {{ section.title | md }}
+
+{% for item in section.items %}
+### [{{ item.headline | md }}]({{ item.source_url }})
+
+{{ item.summary | md }}
+
+**Why it matters:** {{ item.why_it_matters | md }}
+
+{{ item.source_name | md }} · {{ item.published_at | issue_date }} · [Read original →]({{ item.source_url }})
+
+{% endfor %}
+{% endfor %}
+---
+
+*{{ edition.masthead | md }} · Issue {{ edition.issue_label | md }} · generated {{ edition.generated_at | issue_datetime }} from {{ edition.all_items() | length }} selected stories.*

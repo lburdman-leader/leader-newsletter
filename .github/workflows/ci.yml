@@ -1,0 +1,71 @@
+name: CI
+
+# Runs on every push and pull request. Requires no secrets: the whole suite is
+# offline (an autouse socket guard fails any test that reaches for the network),
+# so a fork's pull request gets the same signal as a maintainer's branch.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Formatting
+        run: ruff format --check .
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Repository integrity
+        run: python scripts/validate_repo.py
+
+      - name: Unit tests
+        run: python -m pytest tests/unit
+
+      - name: Integration fixture pipeline
+        run: python -m pytest tests/integration
+
+      - name: Render validation
+        # Regenerating the golden edition must produce no diff. This is the guard
+        # against a template change that silently alters every published edition.
+        run: |
+          python scripts/refresh_expected_edition.py
+          git diff --exit-code -- tests/fixtures/expected_newsletter.md \
+            tests/fixtures/expected_newsletter.json \
+            tests/fixtures/expected_newsletter.html
+
+      - name: Confirm no credential is required
+        # The suite must never depend on a key being present, so prove it by
+        # running with a deliberately invalid one.
+        env:
+          OPENAI_API_KEY: "not-a-real-key-and-must-not-be-used"
+        run: python -m pytest -q
