@@ -65,6 +65,15 @@ submissions:
   require_https: true
   blocked_hosts: []
 
+  # A post is usually a pointer rather than the story. Below min_text_chars of
+  # readable text, the page's own outbound link is followed and what it points
+  # at is attached for the analyst to judge. Python picks the link from the
+  # page's markup; the model never chooses what to fetch.
+  follow_links: true
+  min_text_chars: 600
+  max_link_hops: 3
+  max_linked_chars: 8000
+
 # Defaults for values that the environment may override
 # (OPENAI_API_KEY, OPENAI_ANALYZER_MODEL, OPENAI_EDITOR_MODEL,
 #  NEWSLETTER_DB_PATH, NEWSLETTER_OUTPUT_DIR, LOG_LEVEL).

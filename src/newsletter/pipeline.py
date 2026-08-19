@@ -213,7 +213,16 @@ def run_pipeline(
         pending = database.pending_submissions(limit=config.submissions.max_per_run)
         if pending:
             submission_source = config.submissions.as_source()
-            submission_adapter = SubmissionAdapter(submission_source, pending, http=submission_http)
+            submission_adapter = SubmissionAdapter(
+                submission_source,
+                pending,
+                http=submission_http,
+                follow_links=config.submissions.follow_links,
+                min_text_chars=config.submissions.min_text_chars,
+                max_link_hops=config.submissions.max_link_hops,
+                max_linked_chars=config.submissions.max_linked_chars,
+                blocked_hosts=config.submissions.blocked_hosts,
+            )
             sources = [*sources, submission_source]
             report(f"{len(pending)} reader submissions pending")
 

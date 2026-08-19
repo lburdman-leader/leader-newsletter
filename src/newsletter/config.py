@@ -120,6 +120,24 @@ class SubmissionSettings(ValueModel):
     #: Hosts that may never be submitted; a bare domain also blocks subdomains.
     blocked_hosts: list[str] = Field(default_factory=list)
 
+    #: A post is often a pointer, not the story. When a submitted page carries
+    #: less than `min_text_chars` of text, follow its own outbound link and
+    #: attach what it points at, so the analyst judges the announcement rather
+    #: than the 300 characters announcing it.
+    follow_links: bool = True
+    min_text_chars: int = Field(default=600, ge=0, le=20_000)
+    max_link_hops: int = Field(default=3, ge=1, le=10)
+    max_linked_chars: int = Field(default=8_000, ge=500, le=50_000)
+
+    #: A post is often a pointer, not the story. When a submitted page carries
+    #: less than `min_text_chars` of text, follow its own outbound link and
+    #: attach what it points at, so the analyst judges the announcement rather
+    #: than the 300 characters announcing it.
+    follow_links: bool = True
+    min_text_chars: int = Field(default=600, ge=0, le=20_000)
+    max_link_hops: int = Field(default=3, ge=1, le=10)
+    max_linked_chars: int = Field(default=8_000, ge=500, le=50_000)
+
     def as_source(self) -> SourceConfig:
         """The synthetic source record submissions are ingested through."""
         return SourceConfig(

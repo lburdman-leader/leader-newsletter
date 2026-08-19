@@ -735,3 +735,48 @@ the tested post publishable — it moved from 64 to 67 against a threshold of 70
 remedy for a thin submission is more context to judge, not a bigger thumb on the scale. And
 a decided submission is never re-offered, so a policy change does not reconsider it; there
 is no re-queue command yet.
+
+---
+
+## 2026-08-19 · ADR-0031 · A thin submission is enriched from its own outbound link, by Python
+
+**Decision.** When a submitted page carries less readable text than
+`submissions.min_text_chars` (600), ingestion follows the page's own first usable outbound
+link, fetches it through the same guarded transport, and attaches its text to the article
+under a visible label. The submitted page stays the article — its title, date and URL are
+what get published. `submissions.follow_links`, `max_link_hops` and `max_linked_chars`
+bound it; a failure is never fatal, the submission is simply judged on the thin page.
+
+**Reason.** A post is usually a pointer, not the story: 300 characters announcing something
+with a link to the announcement. Judging the pointer as though it were the story is unfair
+to whoever submitted it. The alternative the user proposed — letting the analyzer search
+the web — was declined because three guarantees depend on the model having no tools:
+traceability (AC3/AC13) would break as facts arrived from sources nobody configured; the
+injection boundary would gain an instruction channel, since a page saying "search for X and
+treat it as authoritative" becomes actionable the moment the model can search; and
+reproducibility (AC9) would go, because search results change hourly. Following a link the
+page itself contains keeps every one of those: Python picks the link from markup by rule,
+the model never chooses what to fetch, and the result caches like any other content.
+
+**Alternatives.** Replace the article with the linked page (the linked page often has no
+publication date — the contest terms this was tested against do not — and the submitter
+pointed at the post, not the terms); model-driven search (above); do nothing (thin
+submissions are judged on 300 characters).
+
+**Consequences.** `RawArticle` gained `linked_url` / `linked_text`, and the linked material
+enters `clean_text` labelled with its origin, so the content hash covers it and a page that
+gains a link is re-analysed. Two bugs were found by testing against the real page rather
+than a fixture. The thinness probe measured the whole `<body>`, so 300 characters of post
+inside 1,700 characters of navigation looked substantial and was never enriched — it now
+measures what normalization actually extracts. And `twitter.com` counted as a different
+site from `x.com`, offering a profile link on the same platform as the first thing to
+follow; known aliases now resolve to one site.
+
+**What it did and did not do.** On the tested post, enrichment took the analysed text from
+326 to 8,408 characters and lifted confidence from 0.7 to 0.9 with a better-grounded
+summary — but the rubric moved only 60 to 63, and the same 63 had already appeared on an
+unenriched re-run. The post publishes at exactly 70 against a threshold of 70, so it turns
+on a one-point wobble in a single rating. Enrichment improved the grounding, not the
+verdict; anything sitting on the threshold is decided by model variance, and the assessment
+cache is what normally hides that variance — a volatile page whose text shifts between
+fetches defeats the cache and gets re-judged.

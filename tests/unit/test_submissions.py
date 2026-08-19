@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from scrapling import Selector
 
 from newsletter.ingestion.base import FetchError
 from newsletter.ingestion.submissions import (
@@ -12,6 +13,8 @@ from newsletter.ingestion.submissions import (
     SubmissionRejected,
     check_submitted_url,
     create_submission,
+    outbound_links,
+    registrable_host,
     submission_id_for,
 )
 from newsletter.models import (
@@ -345,3 +348,129 @@ def test_submissions_are_never_mutated_in_place() -> None:
     decided = original.decide(SubmissionStatus.APPROVED, "scored 80", now=NOW)
     assert original.status is SubmissionStatus.PENDING
     assert decided.status is SubmissionStatus.APPROVED
+
+
+# --------------------------------------------------------------------------- #
+# enrichment — a post is often a pointer, not the story
+# --------------------------------------------------------------------------- #
+
+THIN = (
+    "<html><head><title>Someone on a social site</title></head><body>"
+    "<article><p>We are running a contest. Details here.</p>"
+    '<a href="https://link.example/r/abc">details</a>'
+    '<a href="https://news.example/about">about us</a>'
+    "</article></body></html>"
+)
+MEATY = (
+    "<html><head><title>Contest terms</title></head><body><article>"
+    + "<p>The contest awards one hundred thousand dollars to the best entry. </p>" * 12
+    + "</article></body></html>"
+)
+
+
+def enriching_adapter(pages: dict[str, str], **kwargs: object) -> SubmissionAdapter:
+    return SubmissionAdapter(
+        make_source(),
+        [make_submission()],
+        http=FakeHttpClient(pages),
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+def test_a_thin_post_is_enriched_from_the_link_it_points_at() -> None:
+    adapter = enriching_adapter({SUBMITTED: THIN, "https://link.example/r/abc": MEATY})
+    raw = adapter.fetch(adapter.discover(WINDOW)[0])
+
+    assert raw.linked_url == "https://link.example/r/abc"
+    assert raw.linked_text is not None and "one hundred thousand dollars" in raw.linked_text
+    assert raw.http_metadata["linked_from"] == "https://link.example/r/abc"
+    # The post itself is still the article: its own markup is untouched.
+    assert raw.raw_content == THIN
+    assert raw.url == SUBMITTED
+
+
+def test_a_page_with_enough_text_is_left_alone() -> None:
+    adapter = enriching_adapter({SUBMITTED: MEATY, "https://link.example/r/abc": MEATY})
+    raw = adapter.fetch(adapter.discover(WINDOW)[0])
+
+    assert raw.linked_url is None
+    assert raw.linked_text is None
+
+
+def test_links_back_to_the_same_site_are_not_followed() -> None:
+    """news.example is the submitted page's own site, so it is not the story."""
+    adapter = enriching_adapter({SUBMITTED: THIN, "https://news.example/about": MEATY})
+    raw = adapter.fetch(adapter.discover(WINDOW)[0])
+    assert raw.linked_url is None
+
+
+def test_a_thin_linked_page_is_rejected_and_the_next_tried() -> None:
+    pages = {
+        SUBMITTED: THIN,
+        "https://link.example/r/abc": "<html><body><p>Nothing here.</p></body></html>",
+    }
+    adapter = enriching_adapter(pages)
+    assert adapter.fetch(adapter.discover(WINDOW)[0]).linked_url is None
+
+
+def test_an_unreachable_link_never_fails_the_submission() -> None:
+    adapter = SubmissionAdapter(
+        make_source(),
+        [make_submission()],
+        http=FakeHttpClient({SUBMITTED: THIN}, failures={"https://link.example/r/abc": "gone"}),
+    )
+    raw = adapter.fetch(adapter.discover(WINDOW)[0])
+    assert raw.linked_url is None and raw.raw_content == THIN
+
+
+def test_enrichment_can_be_switched_off() -> None:
+    adapter = enriching_adapter(
+        {SUBMITTED: THIN, "https://link.example/r/abc": MEATY}, follow_links=False
+    )
+    assert adapter.fetch(adapter.discover(WINDOW)[0]).linked_url is None
+
+
+def test_blocked_hosts_are_not_followed_either() -> None:
+    adapter = enriching_adapter(
+        {SUBMITTED: THIN, "https://link.example/r/abc": MEATY}, blocked_hosts=["link.example"]
+    )
+    assert adapter.fetch(adapter.discover(WINDOW)[0]).linked_url is None
+
+
+def test_linked_material_is_capped() -> None:
+    adapter = enriching_adapter(
+        {SUBMITTED: THIN, "https://link.example/r/abc": MEATY}, max_linked_chars=200
+    )
+    raw = adapter.fetch(adapter.discover(WINDOW)[0])
+    assert raw.linked_text is not None and len(raw.linked_text) == 200
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://support.x.com/a", "x.com"),
+        ("https://x.com/a", "x.com"),
+        ("https://www.news.example/a", "news.example"),
+    ],
+)
+def test_subdomains_count_as_the_same_site(url: str, expected: str) -> None:
+    assert registrable_host(url) == expected
+
+
+def test_media_links_are_never_followed() -> None:
+    page = Selector(
+        '<html><body><a href="https://cdn.example/x.jpg">img</a>'
+        '<a href="https://link.example/story">story</a></body></html>',
+        url=SUBMITTED,
+    )
+    assert outbound_links(page, SUBMITTED) == ["https://link.example/story"]
+
+
+def test_linked_material_reaches_the_analyst_labelled() -> None:
+    """It widens what is judged without pretending to be the page's own text."""
+    from newsletter.normalization.article import with_linked_material
+
+    combined = with_linked_material("The post.", "https://link.example/r/abc", "The announcement.")
+    assert "The post." in combined
+    assert "https://link.example/r/abc" in combined
+    assert "The announcement." in combined

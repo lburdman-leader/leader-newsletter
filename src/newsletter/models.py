@@ -258,6 +258,12 @@ class RawArticle(ValueModel):
     retrieved_at: AwareDatetime
     content_type: str = "text/html"
     http_metadata: dict[str, Any] = Field(default_factory=dict)
+    #: A page this one links to, fetched during ingestion when the page itself
+    #: carries too little text to judge -- a post announcing something usually
+    #: links to the thing it announces. Untrusted, exactly like raw_content, and
+    #: chosen by Python from the page's own markup, never by a model.
+    linked_url: PublicUrl | None = None
+    linked_text: str | None = None
 
 
 class NormalizedArticle(ValueModel):

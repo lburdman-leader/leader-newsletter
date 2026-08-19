@@ -262,6 +262,18 @@ def extract_text(page: Selector, source: SourceConfig) -> str:
 # --------------------------------------------------------------------------- #
 
 
+def with_linked_material(text: str, url: str | None, linked: str) -> str:
+    """Append material the page linked to, labelled so its origin stays visible.
+
+    The page itself remains the article -- its title, date and URL are what get
+    published. The linked material only widens what the analyst has to judge,
+    which is the difference between assessing a 300-character post and assessing
+    the announcement it points at.
+    """
+    label = f"Material linked from this page ({url}):" if url else "Material linked from this page:"
+    return "\n\n".join((text.strip(), label, normalize_text(linked))).strip()
+
+
 def normalize_article(
     raw: RawArticle,
     source: SourceConfig,
@@ -287,6 +299,8 @@ def normalize_article(
         )
 
     clean_text = extract_text(page, source)
+    if raw.linked_text:
+        clean_text = with_linked_material(clean_text, raw.linked_url, raw.linked_text)
     if len(clean_text) < MIN_TEXT_LENGTH:
         raise NormalizationError(
             raw.source_id,

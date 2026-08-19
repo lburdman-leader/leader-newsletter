@@ -96,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("url", help="the article URL")
     submit.add_argument("--by", dest="submitted_by", metavar="NAME", help="who is submitting")
     submit.add_argument("--note", metavar="TEXT", help="why it matters (for humans only)")
+    submit.add_argument(
+        "--requeue",
+        action="store_true",
+        help="reconsider a link that was already decided, e.g. after a policy change",
+    )
 
     listing = subparsers.add_parser(
         "submissions", help="list reader submissions and what became of them"
@@ -191,9 +196,21 @@ def cmd_submit(config: AppConfig, args: argparse.Namespace) -> int:
     database = open_database(config)
     try:
         existing = database.get_submission(submission.submission_id)
-        if existing is not None and existing.status is not SubmissionStatus.PENDING:
+        decided = existing is not None and existing.status is not SubmissionStatus.PENDING
+        if decided and not args.requeue:
             report(f"Already {existing.status.value}: {existing.reason or existing.url}")
+            report_plain("    Use --requeue to have it reconsidered on the next run.")
             return EXIT_OK
+        if decided:
+            # Keep who submitted it and why; only the verdict is cleared.
+            submission = submission.model_copy(
+                update={
+                    "submitted_by": submission.submitted_by or existing.submitted_by,
+                    "note": submission.note or existing.note,
+                    "submitted_at": existing.submitted_at,
+                }
+            )
+            report(f"Requeued: was {existing.status.value} ({existing.reason})")
         is_new = database.save_submission(submission)
     finally:
         database.close()
