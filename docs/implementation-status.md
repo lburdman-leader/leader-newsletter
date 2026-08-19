@@ -87,7 +87,7 @@ src/newsletter/
     article.py              untrusted HTML -> NormalizedArticle, hashing, identity
     filtering.py            authoritative date-window gate (AC6)
   ranking/
-    dedupe.py               three-pass dedupe + post-analysis event collapse
+    dedupe.py               three-pass dedupe + event collapse (key, then text: ADR-0034)
     scoring.py              the 0-100 formula, breakdown, deterministic ranking
     selection.py            threshold, caps, max_items, lead story, sections
   persistence/

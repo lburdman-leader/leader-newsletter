@@ -923,3 +923,113 @@ collected, the more of the model's correct names have nothing to vouch for them.
 anchor means a brand the prose *opens* differently from the source is unreachable by any
 loosening, because that anchor is exactly what makes `UTube` catchable. These are accepted:
 each one costs at most a story, and the manifest records every drop.
+
+---
+
+## 2026-08-19 · ADR-0034 · One event is collapsed by content similarity, and the title never suppresses across editions
+
+**Decision.** Three changes to how an edition decides what not to print.
+
+1. `PublishedKeys` carries `article_id` and `content_hash` only. The normalized title is no
+   longer a cross-edition suppression key, and `published_identity_keys` no longer reads the
+   column. The title pass is unchanged inside one run (`deduplicate`).
+2. `RunManifest` gained `withheld: list[WithheldStory]` (article id, url, title, reason,
+   detail) and `record_withheld`. `select` writes every `already_published`, `similar_event`
+   and `subject_limit` rejection into it, carrying the detail text.
+3. A second collapse pass, `collapse_similar_events`, runs after the exact-key collapse and
+   inside one run only. Unigram TF-IDF over `title + clean_text`, sublinear term frequency,
+   document frequency taken over the run's own candidates, L2-normalized cosine, greedy in
+   `ranking_key` order so the survivor is the highest-scoring report. Gated by
+   `collapse_similar_events` (default true) and `similar_event_threshold` (default 0.21).
+   It folds only candidates whose `final_score` reaches `min_score`; see *Scope* below. The
+   exact-key pass keeps its full scope — it is a key, not a judgement, and costs nothing.
+
+**Reason.** (1) A headline repeats on a recurring beat — "YouTube changes its monetization
+rules" is plausible in March and again in September — and inside one run that repetition is
+cheap to be wrong about while across editions it is permanent and invisible. An identical
+article id or content hash is not a guess; a shared headline is. (2) CLAUDE.md rule 7: the
+console is not an audit surface, and a story that disappears between the candidate pool and
+the printed page must be explainable from the artifact. (3) The owner's actual complaint was
+three of eight stories on one ChatGPT-for-Teens launch. Exact-key matching provably cannot
+catch it: each article is assessed by an independent model call with no cross-article
+consistency mechanism, so the free-text `event_subject`/`event_object` pairs disagree
+("openai / chatgpt for teens" beside "chatgpt / teen accounts"). The articles themselves do
+not disagree — they share their rare words.
+
+**Why TF-IDF cosine over words.** Three outlets on one launch share vocabulary and proper
+names and almost no verbatim phrasing, so 5-word shingles under-match them; raw word overlap
+over-matches everything about the same industry. Inverse document frequency is the
+discriminator: `the`, `ai`, `company` cost nothing, `teens`, `parental`, `safeguards` carry
+the signal. Bigrams were measured and rejected — they diluted the true trio to 0.13–0.21 while
+leaving unrelated pairs at 0.36. One extra rule earns its place: a term printed on at least
+half of one source's articles in the run is site furniture (masthead, byline template,
+"latest stories" rail) and is dropped per source. Without it the two Cartoon Brew stories in
+2026-W34 scored 0.44 against each other, higher than the real trio.
+
+**The threshold, measured on the real 2026-W34 data** (58 candidates, the eight published
+stories, read-only from `newsletter.sqlite`). True trio, pairwise: 0.3779, 0.3373, 0.2774.
+Nearest similarity between any *other* published story and any other candidate in the run:
+0.1419 (Roblox Senate investigation vs YouTube Shorts monetization). 0.21 sits between them
+with ≈0.07 of margin on each side. The next-nearest published pairs are 0.1215, 0.1104, 0.0899
+— nowhere near. These are the numbers over the full candidate pool; *Re-measured* below gives
+them again for the pool the pass now actually folds over, and is the authority for the scope
+that shipped.
+
+**Alternatives.** Keying the collapse on the analyzer fields was already in place and is what
+failed. A prompt change to force consistent event naming was rejected: it means
+`article_analyzer_v3`, which invalidates the whole v2 cache and forces another `min_score`
+recalibration (ADR-0032). Asking a model to judge similarity was rejected under ADR-0031.
+Running the pass across editions was rejected for the same reason the title key was: inside a
+week an over-collapse costs one story, across weeks it buries every follow-up forever.
+
+**Scope: only a publishable candidate is ever folded.** The pass first shipped over every
+candidate, and the false positives below were tolerated on the grounds that they happened to
+land under `min_score` and so cost the edition nothing. That was luck, not design, and the
+paragraph that argued it is superseded. The fold is now restricted to candidates whose
+`final_score` reaches `min_score`. The argument is simple: a candidate under the floor cannot
+reach the page whatever this pass decides, so collapsing it changes no edition and can only be
+wrong. Every false positive measured on 2026-W34 lived there — the distinct TechCrunch pair at
+0.4637 (SpaceX/Cursor vs Stripe/OpenRouter, both carrying a rotating "latest stories" rail),
+the two OpenAI posts about young people at 0.3605, the Hugging Face reports at 0.3572 — all of
+them scoring 42–58 against a floor of 62. They are out of scope by construction now, not by
+accident.
+
+**What is scoped is the fold, not the evidence.** Restricting the *term statistics* to the
+publishable subset as well was measured and is wrong. Inverse document frequency and the
+per-source chrome rule are properties of the run's whole corpus and are only observable there:
+with 13 publishable candidates The Verge contributes two, which is under
+`MIN_SOURCE_ARTICLES_FOR_CHROME`, so its chrome becomes unmeasurable and its rail stays in the
+vectors. "Anthropic explains Claude's watermarks" then scores 0.4487 against "ChatGPT is
+getting a dedicated mode for teens" — higher than anything in the true trio — and the greedy
+pass loses "Pacing model development" (64) and the YouTube first-frame story (63), two of the
+eight stories that actually published. So `collapse_similar_events` takes the whole candidate
+list and is told the floor; it profiles everything and folds only what could print.
+
+**Re-measured on the real 2026-W34 data**, read-only from `newsletter.sqlite` (59 candidates
+reconstructed from stored articles and v2 assessments — one more than the 58 the original run
+recorded, since the file has accumulated across runs; the publishable subset is exactly the 13
+the run manifest reports). True trio, pairwise: 0.3621, 0.3081, 0.2892. Nearest pair between
+any two *distinct* publishable candidates: 0.1461 (Roblox Senate investigation vs YouTube
+Shorts monetization, both Cartoon Brew). 0.21 sits 0.079 under the trio's weakest pair and
+0.064 over the nearest false one. The pass folds exactly two candidates out of 59, both of them
+the trio's junior reports into "Introducing ChatGPT for Teens" (68); the other five published
+stories — Roblox, YouTube Shorts monetization, connected TV, first-frame views, Pacing model
+development — all survive, and the result is identical for the input reversed and shuffled
+(AC9).
+
+**An above-threshold false collapse is still possible, and is recorded.** Nothing here proves
+two publishable stories can never be pushed together by shared furniture; it proves it did not
+happen in the one edition we can measure, with roughly 0.06 of margin. When it does happen the
+run manifest carries the loss as a `WithheldStory` with reason `similar_event` and a detail
+naming the story it was folded into, so a thin or surprising edition is explainable from the
+artifact rather than from the console (CLAUDE.md rule 7). That is the guarantee on offer: not
+that the pass is never wrong, but that it is never silently wrong.
+
+**The root cause the measurement exposed, and where it belongs.** Extraction is putting page
+chrome into `clean_text` — TechCrunch's "latest stories" rail is the clearest case, and its
+headlines are themselves other candidates in the same run. That is what inflates similarity
+between unrelated articles, and the per-source chrome heuristic is a patch over it that only
+works when a source contributes enough articles to make the repetition visible. The larger
+problem is that `clean_text` is also what the analyzer reads, so navigation text is being fed
+to the model as article content and is scored as if it were the story. The real fix is
+narrowing extraction to the article body, not moving the threshold. Deferred; not done here.

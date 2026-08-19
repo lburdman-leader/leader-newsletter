@@ -32,6 +32,11 @@ from newsletter.models import (
     SubmissionStatus,
 )
 
+# The identity keys a published story is remembered by are the deduplication
+# keys, so they are defined once, in ranking.dedupe, and read here. The
+# dependency runs one way only: ranking knows nothing about storage.
+from newsletter.ranking.dedupe import PublishedKeys
+
 logger = get_logger("persistence")
 
 SCHEMA_VERSION = 2
@@ -424,6 +429,56 @@ class Database:
             .fetchall()
         )
         return [row["article_id"] for row in rows]
+
+    def published_identity_keys(self, *, exclude_edition_id: str | None = None) -> PublishedKeys:
+        """Identity keys of every story a previous edition already printed.
+
+        The join is ``edition_items -> articles`` for the identity and
+        ``edition_items -> newsletter_editions`` for the issue that printed it, so
+        a suppressed story can name the edition that already carried it. Both
+        joins are outer joins on purpose: a story stays suppressed by article id
+        even if its article row was later purged, and by its edition id even if
+        the edition record is gone.
+
+        ``exclude_edition_id`` leaves one issue out. The pipeline passes the issue
+        it is currently producing, so re-running the same week reproduces that
+        edition instead of suppressing everything it just published (AC9).
+
+        A database with no editions yet returns empty mappings, which suppress
+        nothing. No migration is needed: the query reads only tables the current
+        schema already creates.
+
+        The title is deliberately not read: a headline is evidence inside one run
+        and a guess across editions, and a guess must not carry a permanent
+        consequence. See :class:`PublishedKeys`.
+        """
+        statement = [
+            "SELECT i.article_id AS article_id,",
+            "       a.content_hash AS content_hash,",
+            "       COALESCE(e.issue_label, i.edition_id) AS issue_label",
+            "FROM edition_items i",
+            "LEFT JOIN articles a ON a.article_id = i.article_id",
+            "LEFT JOIN newsletter_editions e ON e.edition_id = i.edition_id",
+        ]
+        parameters: tuple[str, ...] = ()
+        if exclude_edition_id is not None:
+            statement.append("WHERE i.edition_id <> ?")
+            parameters = (exclude_edition_id,)
+        # Oldest issue first, so the label recorded below is the edition that
+        # printed the story *first*, and the result never depends on row order.
+        statement.append("ORDER BY COALESCE(e.generated_at, ''), i.edition_id, i.position")
+
+        rows = self._require_connection().execute("\n".join(statement), parameters).fetchall()
+
+        by_article_id: dict[str, str] = {}
+        by_content_hash: dict[str, str] = {}
+        for row in rows:
+            issue = row["issue_label"]
+            by_article_id.setdefault(row["article_id"], issue)
+            if row["content_hash"]:
+                by_content_hash.setdefault(row["content_hash"], issue)
+
+        return PublishedKeys(by_article_id=by_article_id, by_content_hash=by_content_hash)
 
     # -- reader submissions ------------------------------------------------- #
 

@@ -53,9 +53,11 @@ from newsletter.models import (
 from newsletter.normalization.article import normalize_all
 from newsletter.normalization.filtering import filter_by_window
 from newsletter.persistence.sqlite import Database, PersistenceError
-from newsletter.ranking.dedupe import deduplicate
+from newsletter.ranking.dedupe import PublishedKeys, deduplicate
 from newsletter.ranking.scoring import rank_all
 from newsletter.ranking.selection import (
+    REASON_ALREADY_PUBLISHED,
+    REASON_SIMILAR_EVENT,
     REASON_UNSUPPORTED_ENTITY,
     RejectedArticle,
     SelectionResult,
@@ -346,7 +348,24 @@ def run_pipeline(
 
     # -- score and select --------------------------------------------------- #
     ranked = rank_all(assessed, sources_by_id)
-    selection: SelectionResult = select(ranked, config.newsletter, manifest=manifest)
+
+    # "Every news should be posted only once." The keys are read here, where the
+    # database lives, and handed to select(), which stays a pure function of its
+    # arguments. The issue being produced now is excluded, so re-running the same
+    # week reproduces it rather than suppressing everything it printed.
+    published_keys: PublishedKeys | None = None
+    if database is not None and config.newsletter.suppress_already_published:
+        published_keys = database.published_identity_keys(
+            exclude_edition_id=context.issue_label,
+        )
+
+    selection: SelectionResult = select(
+        ranked, config.newsletter, manifest=manifest, published=published_keys
+    )
+    for suppressed in selection.rejections_for(REASON_ALREADY_PUBLISHED):
+        report(f'"{suppressed.ranked.article.title}" not reprinted: {suppressed.detail}')
+    for folded in selection.rejections_for(REASON_SIMILAR_EVENT):
+        report(f'"{folded.ranked.article.title}" folded in: {folded.detail}')
     report(f"{selection.above_threshold} scored >= {config.newsletter.min_score}")
     report(f"{len(selection.selected)} selected")
 

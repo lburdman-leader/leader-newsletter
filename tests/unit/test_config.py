@@ -240,6 +240,71 @@ def test_out_of_range_threshold_is_rejected(config_dir: Path) -> None:
         load_config(config_dir, env={})
 
 
+def test_the_new_caps_and_the_reprint_guard_have_defaults(config_dir: Path) -> None:
+    """Absent from YAML, the settings still hold their documented defaults."""
+    settings = load_config(config_dir, env={}).newsletter
+
+    assert settings.max_per_subject == 2
+    assert settings.suppress_already_published is True
+
+
+def test_the_repository_configuration_caps_a_subject_and_suppresses_reprints() -> None:
+    settings = load_config(REAL_CONFIG_DIR, env={}).newsletter
+
+    assert settings.max_per_subject == 2
+    assert settings.suppress_already_published is True
+
+
+def test_a_zero_subject_cap_is_rejected(config_dir: Path) -> None:
+    """A cap of zero would publish nothing; removing the cap is ``null``."""
+    (config_dir / "newsletter.yaml").write_text(
+        f"{MINIMAL_NEWSLETTER}  max_per_subject: 0\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="max_per_subject"):
+        load_config(config_dir, env={})
+
+
+def test_a_non_boolean_reprint_guard_is_reported(config_dir: Path) -> None:
+    (config_dir / "newsletter.yaml").write_text(
+        f"{MINIMAL_NEWSLETTER}  suppress_already_published: occasionally\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="suppress_already_published"):
+        load_config(config_dir, env={})
+
+
+def test_the_similarity_collapse_has_a_default_and_a_tuned_threshold(config_dir: Path) -> None:
+    """The threshold is editorial policy, so it is configuration with a default."""
+    settings = load_config(config_dir, env={}).newsletter
+
+    assert settings.collapse_similar_events is True
+    assert settings.similar_event_threshold == 0.21
+
+
+def test_the_repository_configuration_ships_the_measured_threshold() -> None:
+    settings = load_config(REAL_CONFIG_DIR, env={}).newsletter
+
+    assert settings.collapse_similar_events is True
+    assert settings.similar_event_threshold == 0.21
+
+
+def test_a_similarity_threshold_outside_zero_to_one_is_rejected(config_dir: Path) -> None:
+    """Cosine similarity cannot exceed 1, and 0 would fold the whole edition."""
+    for value in ("0", "1.5", "-0.2"):
+        (config_dir / "newsletter.yaml").write_text(
+            f"{MINIMAL_NEWSLETTER}  similar_event_threshold: {value}\n", encoding="utf-8"
+        )
+        with pytest.raises(ConfigError, match="similar_event_threshold"):
+            load_config(config_dir, env={})
+
+
+def test_a_non_numeric_similarity_threshold_is_reported(config_dir: Path) -> None:
+    (config_dir / "newsletter.yaml").write_text(
+        f"{MINIMAL_NEWSLETTER}  similar_event_threshold: quite high\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="similar_event_threshold"):
+        load_config(config_dir, env={})
+
+
 # --------------------------------------------------------------------------- #
 # environment overrides
 # --------------------------------------------------------------------------- #

@@ -287,6 +287,80 @@ def test_every_published_story_can_be_traced_to_its_source(db: Database) -> None
 
 
 # --------------------------------------------------------------------------- #
+# published identity keys — nothing is printed twice
+# --------------------------------------------------------------------------- #
+
+
+def publish_an_edition(db: Database) -> None:
+    for article_id in ("lead", "second", "third"):
+        db.save_article(make_article(article_id, title=f"Example Labs ships {article_id}"), now=NOW)
+    db.save_edition(make_edition())
+
+
+def test_a_database_with_no_editions_returns_no_published_keys(db: Database) -> None:
+    """A fresh database suppresses nothing rather than erroring."""
+    keys = db.published_identity_keys()
+    assert not keys
+    assert keys.by_article_id == {}
+
+
+def test_published_keys_join_the_edition_to_its_articles(db: Database) -> None:
+    publish_an_edition(db)
+    keys = db.published_identity_keys()
+
+    assert set(keys.by_article_id) == {"lead", "second", "third"}
+    assert keys.by_article_id["lead"] == "2026-W34"
+    assert keys.by_content_hash["contenthash-second"] == "2026-W34"
+
+
+def test_published_keys_can_exclude_the_issue_being_produced(db: Database) -> None:
+    """Re-running a week must reproduce it, not suppress everything it printed."""
+    publish_an_edition(db)
+    assert not db.published_identity_keys(exclude_edition_id="2026-W34")
+
+
+def test_published_keys_survive_an_article_row_that_is_no_longer_there(db: Database) -> None:
+    """The story stays suppressed by id even with nothing left to hash."""
+    db.save_edition(make_edition())
+    keys = db.published_identity_keys()
+
+    assert set(keys.by_article_id) == {"lead", "second", "third"}
+    assert keys.by_content_hash == {}
+
+
+def test_published_keys_name_the_issue_that_printed_a_story_first(db: Database) -> None:
+    publish_an_edition(db)
+    reprint = make_edition().model_copy(
+        update={
+            "edition_id": "2026-W35",
+            "issue_label": "2026-W35",
+            "generated_at": NOW + timedelta(days=7),
+        }
+    )
+    db.save_edition(reprint)
+
+    assert db.published_identity_keys().by_article_id["lead"] == "2026-W34"
+
+
+def test_published_keys_do_not_depend_on_row_order(db: Database) -> None:
+    """AC9: two reads of the same database produce the same keys."""
+    publish_an_edition(db)
+    first = db.published_identity_keys()
+    second = db.published_identity_keys()
+
+    assert first == second
+
+
+def test_a_published_headline_is_never_read_as_a_durable_key(db: Database) -> None:
+    """Across editions the title is a guess, so the query does not even ask for it."""
+    db.save_article(make_article("lead", title="Example Labs ships third"), now=NOW)
+    db.save_edition(make_edition())
+    keys = db.published_identity_keys()
+
+    assert set(keys.by_article_id) and not hasattr(keys, "by_title_key")
+
+
+# --------------------------------------------------------------------------- #
 # run history
 # --------------------------------------------------------------------------- #
 

@@ -22,8 +22,31 @@ newsletter:
   min_score: 62
 
   # Collapse several articles covering the same event into one story, using the
-  # analyzer event fingerprint (subject + action + object + date).
+  # analyzer event fingerprint. The collapse key is subject + object only:
+  # "launches", "introduces" and "announces" are one launch, and the date is
+  # stated in some reports and left null in others.
   collapse_events: true
+
+  # Second collapse pass, for the case the fingerprint cannot reach. Each article
+  # is assessed on its own, so three outlets reporting one launch can produce
+  # three different subject/object pairs -- "openai / chatgpt for teens" next to
+  # "chatgpt / teen accounts" -- and no exact key will ever match them. This pass
+  # compares the articles themselves: rare words and proper names, weighted by how
+  # unusual they are across the week's candidates, cosine-compared. Within a run
+  # only, never across editions.
+  collapse_similar_events: true
+
+  # The similarity at which two candidates are one event. Measured on the real
+  # 2026-W34 edition: the three ChatGPT-for-Teens reports scored 0.28, 0.34 and
+  # 0.38 against each other, while the closest genuinely distinct pair among the
+  # published stories scored 0.14. 0.21 sits between them with room on both sides.
+  similar_event_threshold: 0.21
+
+  # Every story is printed once, for good. A story an earlier edition carried is
+  # never reprinted, matched on identity (article id, content hash, normalized
+  # title) and never on topic -- so a genuine follow-up on the same company and
+  # the same product still competes on its merits.
+  suppress_already_published: true
 
   # Reader-visible prose is checked, in Python, against the text ingestion
   # collected for the story. A proper name the source never uses -- "UTube"
@@ -33,6 +56,10 @@ newsletter:
 
   # No single publication may fill the edition, however well it scores.
   max_per_source: 2
+
+  # Nor may any single company, even across genuinely distinct events. This is
+  # what keeps an edition heterogeneous once collapse has done its work.
+  max_per_subject: 2
 
   # Caps that stop one topic monopolising the edition.
   # Weighted towards what this company lives on: YouTube and children's

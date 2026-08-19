@@ -13,13 +13,17 @@ from newsletter.models import (
     RunManifest,
     TopicCategory,
 )
+from newsletter.ranking.dedupe import PublishedKeys
 from newsletter.ranking.selection import (
+    REASON_ALREADY_PUBLISHED,
     REASON_BELOW_THRESHOLD,
     REASON_CATEGORY_LIMIT,
     REASON_DUPLICATE_EVENT,
     REASON_EXCLUDED_CATEGORY,
     REASON_MAX_ITEMS,
+    REASON_SIMILAR_EVENT,
     REASON_SOURCE_LIMIT,
+    REASON_SUBJECT_LIMIT,
     select,
 )
 
@@ -52,7 +56,7 @@ def make_ranked(
     *,
     category: TopicCategory = TopicCategory.AI_MODELS,
     published_at: datetime = PUBLISHED,
-    event: tuple[str, str, str, str] | None = None,
+    event: tuple[str | None, str | None, str | None, str | None] | None = None,
     **assessment_overrides: Any,
 ) -> RankedArticle:
     values: dict[str, Any] = {
@@ -259,6 +263,189 @@ def test_event_collapse_can_be_switched_off() -> None:
     assert len(select(ranked, settings).selected) == 2
 
 
+#: The owner complaint: one launch ran as three stories in three sections. Each
+#: outlet chose a different verb, and only one of them dated the announcement.
+CHATGPT_FOR_TEENS = (
+    ("OpenAI", "launches", "ChatGPT for Teens", None),
+    ("OpenAI", "introduces", "chatgpt-for-teens", "2026-08-14"),
+    ("openai", "announces", "The ChatGPT For Teens", None),
+)
+
+
+def test_one_launch_reported_three_ways_runs_as_a_single_story() -> None:
+    """Collapse runs before the category caps, which would otherwise spread it.
+
+    Three copies filed under three categories used to pass three different caps
+    and print three times.
+    """
+    categories = [TopicCategory.AI_MODELS, TopicCategory.AI_VIDEO, TopicCategory.AI_BUSINESS]
+    ranked = [
+        make_ranked(f"teens{index}", 95 - index, category=category, event=event)
+        for index, (event, category) in enumerate(zip(CHATGPT_FOR_TEENS, categories, strict=True))
+    ]
+    result = select(ranked, SETTINGS)
+
+    assert [r.article.article_id for r in result.selected] == ["teens0"]
+    assert result.reasons() == {REASON_DUPLICATE_EVENT: 2}
+
+
+def test_a_second_event_from_the_same_company_is_not_collapsed_into_the_first() -> None:
+    """Aggressive collapse must not become "one story per company"."""
+    ranked = [
+        make_ranked("launch", 95, event=("OpenAI", "launches", "ChatGPT for Teens", None)),
+        make_ranked("deal", 92, event=("OpenAI", "signs", "a data centre deal", "2026-08-15")),
+    ]
+    assert [r.article.article_id for r in select(ranked, SETTINGS).selected] == ["launch", "deal"]
+
+
+# --------------------------------------------------------------------------- #
+# across editions — every story is printed only once
+# --------------------------------------------------------------------------- #
+
+
+def test_a_story_an_earlier_edition_printed_is_not_reprinted() -> None:
+    published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
+    result = select(
+        [make_ranked("reprint", 95), make_ranked("fresh", 80)], SETTINGS, published=published
+    )
+
+    assert [r.article.article_id for r in result.selected] == ["fresh"]
+    assert result.reasons() == {REASON_ALREADY_PUBLISHED: 1}
+
+
+def test_a_suppressed_story_says_which_issue_already_carried_it() -> None:
+    """A suppression that cannot explain itself is a silent failure."""
+    published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
+    result = select([make_ranked("reprint", 95)], SETTINGS, published=published)
+
+    assert result.rejections_for(REASON_ALREADY_PUBLISHED)[0].detail == (
+        "already published in 2026-W33"
+    )
+
+
+def test_the_same_text_republished_at_a_new_url_is_suppressed() -> None:
+    published = PublishedKeys(by_content_hash={"contenthash-syndicated": "2026-W30"})
+    result = select([make_ranked("syndicated", 95)], SETTINGS, published=published)
+
+    assert result.is_empty
+    assert result.reasons() == {REASON_ALREADY_PUBLISHED: 1}
+
+
+def test_a_repeated_headline_does_not_suppress_a_new_story() -> None:
+    """A recurring beat reuses its headline; a permanent block must not.
+
+    "YouTube changes its monetization rules" can be March's story and September's.
+    Inside one run the shared headline collapses them (see ``test_dedupe``); across
+    editions it would kill September's forever, so the key is not carried here.
+    """
+    reused = make_ranked("rewritten-elsewhere", 95)
+    published = PublishedKeys(by_article_id={"an-older-article": "2026-W29"})
+    result = select([reused], SETTINGS, published=published)
+
+    assert [r.article.article_id for r in result.selected] == ["rewritten-elsewhere"]
+
+
+def test_a_follow_up_on_the_same_subject_and_object_is_still_published() -> None:
+    """Suppression is on identity, never on topic.
+
+    Next month's regulatory fight over ChatGPT for Teens is news, not a duplicate
+    of last month's launch, and blocking the subject would kill it forever.
+    """
+    launch = make_ranked("launch", 95, event=("OpenAI", "launches", "ChatGPT for Teens", None))
+    follow_up = make_ranked(
+        "regulator", 90, event=("OpenAI", "is investigated over", "ChatGPT for Teens", "2026-08-15")
+    )
+    published = PublishedKeys(
+        by_article_id={"launch": "2026-W29"},
+        by_content_hash={"contenthash-launch": "2026-W29"},
+    )
+    result = select([launch, follow_up], SETTINGS, published=published)
+
+    assert [r.article.article_id for r in result.selected] == ["regulator"]
+
+
+def test_nothing_is_suppressed_when_no_edition_has_been_published() -> None:
+    ranked = [make_ranked("a", 90), make_ranked("b", 88)]
+    assert select(ranked, SETTINGS, published=PublishedKeys()).reasons() == {}
+    assert len(select(ranked, SETTINGS).selected) == 2
+
+
+# --------------------------------------------------------------------------- #
+# per-subject cap — no one company takes over an edition
+# --------------------------------------------------------------------------- #
+
+
+SUBJECT_CAPPED = NewsletterSettings(
+    max_items=8, min_score=70, collapse_events=False, max_per_subject=2
+)
+
+
+def make_about(subject: str, article_id: str, score: int) -> RankedArticle:
+    return make_ranked(article_id, score, event=(subject, "announces", article_id, None))
+
+
+def test_no_single_company_can_take_more_than_its_share() -> None:
+    ranked = [make_about("OpenAI", f"thing{i}", 95 - i) for i in range(4)]
+    result = select(ranked, SUBJECT_CAPPED)
+
+    assert [r.article.article_id for r in result.selected] == ["thing0", "thing1"]
+    assert result.reasons() == {REASON_SUBJECT_LIMIT: 2}
+
+
+def test_a_capped_subject_leaves_room_for_another_company() -> None:
+    ranked = [make_about("OpenAI", f"thing{i}", 95 - i) for i in range(3)]
+    ranked.append(make_about("Google", "gemini", 71))
+
+    selected = select(ranked, SUBJECT_CAPPED).selected
+
+    assert [r.assessment.event_subject for r in selected] == ["OpenAI", "OpenAI", "Google"]
+
+
+def test_the_subject_cap_names_the_subject_that_filled_up() -> None:
+    ranked = [make_about("OpenAI", f"thing{i}", 95 - i) for i in range(3)]
+    rejected = select(ranked, SUBJECT_CAPPED).rejections_for(REASON_SUBJECT_LIMIT)
+
+    assert rejected[0].detail == "2 stories already cover 'openai'"
+
+
+def test_an_article_whose_analyst_named_no_subject_is_never_capped() -> None:
+    """Fail open: an unknown subject is not evidence of dominance."""
+    ranked = [make_ranked(f"a{i}", 95 - i) for i in range(5)]
+    assert len(select(ranked, SUBJECT_CAPPED).selected) == 5
+
+
+def test_the_same_company_written_differently_still_counts_once() -> None:
+    ranked = [
+        make_about("OpenAI", "first", 95),
+        make_about("openai", "second", 92),
+        make_about("The OpenAI", "third", 90),
+    ]
+    result = select(ranked, SUBJECT_CAPPED)
+
+    assert len(result.selected) == 2
+    assert result.reasons() == {REASON_SUBJECT_LIMIT: 1}
+
+
+def test_the_subject_cap_can_be_removed() -> None:
+    settings = NewsletterSettings(
+        max_items=8, min_score=70, collapse_events=False, max_per_subject=None
+    )
+    ranked = [make_about("OpenAI", f"thing{i}", 95 - i) for i in range(4)]
+    assert len(select(ranked, settings).selected) == 4
+
+
+def test_the_subject_cap_defaults_to_two() -> None:
+    assert NewsletterSettings().max_per_subject == 2
+
+
+def test_the_subject_cap_is_reported_like_every_other_rejection() -> None:
+    ranked = [make_about("OpenAI", f"thing{i}", 95 - i) for i in range(4)]
+    result = select(ranked, SUBJECT_CAPPED)
+
+    assert len(result.selected) + len(result.rejected) == len(ranked)
+    assert all(item.reason == REASON_SUBJECT_LIMIT for item in result.rejected)
+
+
 # --------------------------------------------------------------------------- #
 # sections
 # --------------------------------------------------------------------------- #
@@ -405,3 +592,168 @@ def test_the_cap_is_reported_like_every_other_rejection() -> None:
 
     assert len(result.selected) + len(result.rejected) == len(ranked)
     assert all(item.reason == REASON_SOURCE_LIMIT for item in result.rejected)
+
+
+# --------------------------------------------------------------------------- #
+# the run manifest — the console is not an audit surface
+# --------------------------------------------------------------------------- #
+
+
+def test_a_suppressed_reprint_reaches_the_run_manifest() -> None:
+    """Rule 7: a story that vanishes must be explainable from the artifact."""
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
+
+    select([make_ranked("reprint", 95)], SETTINGS, manifest=manifest, published=published)
+
+    assert [(w.article_id, w.reason, w.detail) for w in manifest.withheld] == [
+        ("reprint", REASON_ALREADY_PUBLISHED, "already published in 2026-W33")
+    ]
+    assert manifest.withheld[0].title == "Story reprint"
+    assert manifest.withheld[0].url == "https://wire.example/reprint"
+
+
+def test_a_capped_subject_reaches_the_run_manifest_with_its_detail() -> None:
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    ranked = [make_about("Northwind", f"n{i}", 95 - i) for i in range(3)]
+
+    select(ranked, SUBJECT_CAPPED, manifest=manifest)
+
+    assert [(w.article_id, w.reason) for w in manifest.withheld] == [("n2", REASON_SUBJECT_LIMIT)]
+    assert manifest.withheld[0].detail == "2 stories already cover 'northwind'"
+
+
+def test_an_omission_is_not_a_failure() -> None:
+    """A suppressed reprint is the system working, not a broken run."""
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
+
+    select([make_ranked("reprint", 95)], SETTINGS, manifest=manifest, published=published)
+
+    assert manifest.withheld
+    assert not manifest.failed
+
+
+def test_policy_arithmetic_stays_out_of_the_manifest() -> None:
+    """A low score or a full section is re-derivable from the counts and config."""
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    ranked = [make_ranked("weak", 20), make_ranked("other", 99, category=TopicCategory.OTHER)]
+
+    select(ranked, SETTINGS, manifest=manifest)
+
+    assert manifest.withheld == []
+
+
+def test_the_manifest_survives_a_run_with_no_manifest() -> None:
+    """``select`` stays usable without one; the tests above rely on that too."""
+    published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
+    assert select([make_ranked("reprint", 95)], SETTINGS, published=published).is_empty
+
+
+# --------------------------------------------------------------------------- #
+# the second collapse pass — one event, however the analyzer keyed it
+# --------------------------------------------------------------------------- #
+
+
+SIMILARITY = NewsletterSettings(max_items=8, min_score=70, collapse_events=False)
+
+
+def make_reported(article_id: str, source_id: str, title: str, text: str, score: int):
+    """One article of a multi-outlet story, with a body long enough to compare."""
+    ranked = make_ranked(article_id, score)
+    return ranked.model_copy(
+        update={
+            "article": ranked.article.model_copy(
+                update={"source_id": source_id, "title": title, "clean_text": text}
+            )
+        }
+    )
+
+
+ONE_LAUNCH = (
+    (
+        "vendor-post",
+        "vendor",
+        "Introducing ChatGPT for Teens",
+        "Introducing ChatGPT for Teens, built for learning and backed by parental "
+        "controls. Teenagers aged 13 to 17 are moved into a separate ChatGPT "
+        "experience with age prediction, parental controls and stricter safeguards "
+        "around self-harm, disordered eating and romantic roleplay. A parent can "
+        "link an account, set quiet hours and receive a notification when our "
+        "systems detect a teenager in acute distress.",
+        88,
+    ),
+    (
+        "outlet-report",
+        "outlet",
+        "ChatGPT is getting a dedicated mode for teens",
+        "ChatGPT is getting a dedicated mode for teens. The company said teenagers "
+        "between 13 and 17 will be moved into a separate experience carrying "
+        "parental controls, age prediction and tighter safeguards covering "
+        "self-harm, disordered eating and romantic roleplay. Parents will be able "
+        "to link an account, set quiet hours and get a notification if the company "
+        "believes their teenager is in acute distress.",
+        82,
+    ),
+    (
+        "rival-report",
+        "rival",
+        "A safer ChatGPT for teens, years late",
+        "A safer ChatGPT for teens arrives years after teenagers started using it "
+        "anyway. Teen accounts for 13- to 17-year-olds bring parental controls, age "
+        "prediction and new safeguards around self-harm, disordered eating and "
+        "romantic roleplay. Parents get quiet hours and a distress notification. "
+        "Critics point out that teenagers have been doing homework with the chatbot, "
+        "largely unsupervised, since the day it launched.",
+        80,
+    ),
+)
+
+
+def test_three_reports_of_one_event_are_selected_as_one_story() -> None:
+    """The owner's complaint: three of eight stories on one launch."""
+    result = select([make_reported(*report) for report in ONE_LAUNCH], SIMILARITY)
+
+    assert [r.article.article_id for r in result.selected] == ["vendor-post"]
+    assert result.reasons() == {REASON_SIMILAR_EVENT: 2}
+
+
+def test_a_folded_story_names_the_story_it_was_folded_into() -> None:
+    result = select([make_reported(*report) for report in ONE_LAUNCH], SIMILARITY)
+
+    assert all(
+        item.detail == "same event as 'Introducing ChatGPT for Teens'"
+        for item in result.rejections_for(REASON_SIMILAR_EVENT)
+    )
+
+
+def test_a_folded_story_reaches_the_run_manifest() -> None:
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    select([make_reported(*report) for report in ONE_LAUNCH], SIMILARITY, manifest=manifest)
+
+    assert [w.article_id for w in manifest.withheld] == ["outlet-report", "rival-report"]
+    assert all(w.reason == REASON_SIMILAR_EVENT for w in manifest.withheld)
+
+
+def test_the_second_pass_can_be_switched_off() -> None:
+    settings = SIMILARITY.model_copy(update={"collapse_similar_events": False})
+    result = select([make_reported(*report) for report in ONE_LAUNCH], settings)
+
+    assert len(result.selected) == 3
+    assert result.reasons() == {}
+
+
+def test_reports_below_the_floor_are_rejected_on_score_and_never_folded() -> None:
+    """The same three reports, none publishable: the floor rejects them, not the fold.
+
+    A candidate under ``min_score`` cannot reach the page whatever the similarity
+    pass decides, and folding it would only put a wrong `similar_event` in the
+    manifest. Every false positive measured on the real 2026-W34 edition sat here.
+    """
+    settings = SIMILARITY.model_copy(update={"min_score": 95})
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    result = select([make_reported(*report) for report in ONE_LAUNCH], settings, manifest=manifest)
+
+    assert result.is_empty
+    assert result.reasons() == {REASON_BELOW_THRESHOLD: 3}
+    assert manifest.withheld == []

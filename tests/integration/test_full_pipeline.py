@@ -256,10 +256,11 @@ def run_fixture_pipeline(
     http: FakeHttpClient,
     *,
     database: Database | None = None,
+    window: DateWindow = WINDOW,
     **config_overrides: Any,
 ):
     config = make_config(tmp_path, **config_overrides)
-    context = RunContext.create(config, WINDOW, now=NOW)
+    context = RunContext.create(config, window, now=NOW)
     analyzer = ArticleAnalyzer(ScriptedAnalyzerClient(), cache=database)
 
     # The editor is consulted after selection, so the ids are only known then;
@@ -608,6 +609,59 @@ def test_the_run_is_persisted_and_traceable(tmp_path: Path, http: FakeHttpClient
             article = database.get_article(article_id)
             assert article is not None
             assert database.get_source(article.source_id) is not None
+
+
+#: The same fixture web, one week later: every story is still inside the window,
+#: so the only thing keeping last week's lead out of this edition is the durable
+#: "printed only once" guarantee.
+NEXT_WINDOW = DateWindow.from_dates("2026-08-11", "2026-08-24")
+
+
+def test_a_story_an_earlier_edition_printed_is_not_reprinted(
+    tmp_path: Path, http: FakeHttpClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Owner complaint (b): every story is posted only once, across editions."""
+    with Database(tmp_path / "news.sqlite") as database:
+        first = run_fixture_pipeline(tmp_path / "one", http, database=database, max_items=1)
+        printed = {item.source_url for item in first.edition.all_items()}
+        assert len(printed) == 1
+
+        capsys.readouterr()
+        second = run_fixture_pipeline(tmp_path / "two", http, database=database, window=NEXT_WINDOW)
+        console = capsys.readouterr().out
+
+    reprinted = printed & {item.source_url for item in second.edition.all_items()}
+    assert not reprinted, "last week's story was printed again"
+    assert second.edition.all_items(), "the stories that were never printed still ran"
+    assert "not reprinted: already published in 2026-W34" in console
+
+
+def test_re_running_the_same_week_reproduces_its_edition(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """The guard must not suppress an issue against itself (AC9)."""
+    with Database(tmp_path / "news.sqlite") as database:
+        first = run_fixture_pipeline(tmp_path / "one", http, database=database)
+        second = run_fixture_pipeline(tmp_path / "two", http, database=database)
+
+    assert [item.article_id for item in first.edition.all_items()] == [
+        item.article_id for item in second.edition.all_items()
+    ]
+
+
+def test_the_reprint_guard_can_be_switched_off(tmp_path: Path, http: FakeHttpClient) -> None:
+    with Database(tmp_path / "news.sqlite") as database:
+        first = run_fixture_pipeline(tmp_path / "one", http, database=database, max_items=1)
+        second = run_fixture_pipeline(
+            tmp_path / "two",
+            http,
+            database=database,
+            window=NEXT_WINDOW,
+            suppress_already_published=False,
+        )
+
+    printed = {item.source_url for item in first.edition.all_items()}
+    assert printed & {item.source_url for item in second.edition.all_items()}
 
 
 def test_the_second_run_reuses_cached_assessments(tmp_path: Path, http: FakeHttpClient) -> None:

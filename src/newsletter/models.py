@@ -459,6 +459,26 @@ class RunError(ValueModel):
     retry_count: int = 0
 
 
+class WithheldStory(ValueModel):
+    """One candidate the edition left out for a reason a reader could ask about.
+
+    Not a failure -- a suppressed reprint, a capped subject and a collapsed report
+    of an already-covered event are all the system working -- so these are kept
+    apart from :class:`RunError`, which marks the run as failed. They belong in the
+    manifest all the same: a story that vanishes between the candidate pool and the
+    printed page must be explainable afterwards, from the artifact, not from a
+    console line nobody kept.
+    """
+
+    article_id: str
+    url: PublicUrl
+    title: str
+    reason: str
+    #: The specific circumstance: which issue printed it, which subject filled up,
+    #: which story it was folded into. Absent when the reason says it all.
+    detail: str | None = None
+
+
 class RunManifest(MutableModel):
     """Machine-readable record of one run."""
 
@@ -488,7 +508,26 @@ class RunManifest(MutableModel):
     schema_version: str | None = None
 
     errors: list[RunError] = Field(default_factory=list)
+    #: Stories the selection withheld on purpose, each with the reason and the
+    #: detail behind it. A count alone cannot answer "why is this week thin?".
+    withheld: list[WithheldStory] = Field(default_factory=list)
     output_paths: dict[str, str] = Field(default_factory=dict)
+
+    def record_withheld(
+        self,
+        *,
+        article_id: str,
+        url: str,
+        title: str,
+        reason: str,
+        detail: str | None = None,
+    ) -> WithheldStory:
+        """Append a deliberate omission to the manifest and return it."""
+        withheld = WithheldStory(
+            article_id=article_id, url=url, title=title, reason=reason, detail=detail
+        )
+        self.withheld = [*self.withheld, withheld]
+        return withheld
 
     def record_error(
         self,

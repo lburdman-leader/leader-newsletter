@@ -66,6 +66,23 @@ class NewsletterSettings(ValueModel):
     min_score: int = Field(default=70, ge=0, le=100)
     #: Collapse several articles covering one event, using the analyzer fingerprint.
     collapse_events: bool = True
+    #: Second collapse pass, on the article text rather than the fingerprint, for
+    #: the reports of one event whose analyzer keys disagree. Within a run only,
+    #: and only over candidates that reach ``min_score``: nothing under the floor
+    #: can print, so folding it changes no edition and can only be wrong.
+    collapse_similar_events: bool = True
+    #: Cosine similarity at or above which two candidates are one event. Tuned on
+    #: a real edition: three outlets on one launch scored 0.28-0.38, while the
+    #: closest genuinely distinct pair in that edition scored 0.14. Raising it
+    #: prints the same story twice; lowering it starts folding together stories
+    #: that merely share an industry.
+    similar_event_threshold: float = Field(default=0.21, gt=0.0, le=1.0)
+    #: Never reprint a story an earlier edition already carried. Matched on
+    #: identity (article id, content hash, title) and never on topic, so a
+    #: follow-up on the same subject is still publishable. Off only for
+    #: debugging: a reader who sees last week's story again stops trusting the
+    #: edition.
+    suppress_already_published: bool = True
     #: Check reader-visible prose for named entities its own source never uses
     #: ("UTube" where the article said "YouTube"). Deterministic, no model call.
     #: Off only for debugging: a corrupted brand name is an error in print.
@@ -75,6 +92,10 @@ class NewsletterSettings(ValueModel):
     #: Cap per source, so no single publication can fill the edition. None means
     #: no cap; the category limits and max_items still apply.
     max_per_source: int | None = Field(default=None, ge=1, le=50)
+    #: Cap per event subject, so no single company can fill the edition even when
+    #: its stories are genuinely distinct events. An article whose analyst named
+    #: no subject is uncapped. None removes the cap entirely.
+    max_per_subject: int | None = Field(default=2, ge=1, le=50)
     #: Publication order of the sections.
     section_order: list[TopicCategory] = Field(default_factory=list)
     section_titles: dict[TopicCategory, str] = Field(default_factory=dict)
