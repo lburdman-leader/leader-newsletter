@@ -846,8 +846,9 @@ gate rather than shipping.
 prose against the article's trusted text (`source_name` + `title` + `clean_text`, all of it
 ingested, none of it model-authored). A token is checked only if it carries an uppercase
 letter at a non-initial position and is not entirely uppercase, or if it mixes letters and
-digits. It is a violation when it does not appear in the trusted text under a
-case-insensitive match anchored at a left word boundary. The guard runs in two phases inside
+digits. It is a violation when no word of the trusted text vouches for it, compared without
+regard to case or punctuation and always anchored at a left word boundary. The guard runs in
+two phases inside
 `run_pipeline`: before editorial synthesis it checks analyzer prose and drops the offending
 article from the line-up; after synthesis it checks editor prose and, on any violation,
 discards the polish and rebuilds the deterministic edition. Every drop lands in the run
@@ -871,10 +872,10 @@ entry keeps it from being silent (rule 7). If the filter empties the line-up, th
 
 **Why the match is anchored on the left only.** The obvious rule — case-insensitive substring
 — cannot catch this defect at all, because `utube` *is* a substring of `youtube`, so any
-article mentioning YouTube would vouch for the corruption. A left word boundary fixes that.
-The right side stays open so a source writing `YouTubers` still supports prose writing
-`YouTube`. The asymmetry is deliberate: false negatives are tolerable, false positives delete
-a real story from the newspaper.
+article mentioning YouTube would vouch for the corruption. A left word boundary fixes that,
+and it is the one part of the rule that cannot be relaxed. Everything to the right of the
+anchor is deliberately loose: false negatives are tolerable, false positives delete a real
+story from the newspaper.
 
 **Why all-caps tokens are exempt.** The prose is Spanish and the sources are English, so any
 rule that survives translation must only test tokens translation does not touch. Brand names
@@ -892,9 +893,33 @@ still reach the reader.
 
 **Consequences.** The edition can now be thinner than the score threshold alone would predict,
 so `selection.py` gained `REASON_UNSUPPORTED_ENTITY` and `articles_selected` is corrected to
-the surviving count. Three false-positive surfaces are known and accepted for now: hyphenated
-compounds (`YouTube-Shorts` in prose against `YouTube Shorts` in source), prose morphology
-longer than the source (`YouTubers` where the source writes only `YouTube`), and any
-alphanumeric identifier that reaches reader-visible prose — the last of these fired on the
-integration harness, whose fake headlines embedded a 16-character hex `article_id`. No prompt,
-schema version, score formula or threshold changed, so the v2 cache is intact.
+the surviving count. No prompt, schema version, score formula or threshold changed, so the v2
+cache is intact.
+
+**Two false positives found in reliability review, and how matching answers them.** The first
+literal implementation dropped a faithful story over punctuation — scraped English writes
+`GPT4` and `H100` where the model prints `GPT-4` and `H-100` — and over Spanish brand
+morphology, flagging `YouTubers` against a source that says `YouTube`. Both delete a true
+story from a published newspaper, which is strictly worse than the corruption the guard
+prevents, so both were fixed. Comparison now runs on a normalized form: each side keeps only
+alphanumerics, case folded, so a whitespace-delimited source word becomes one unit (`GPT-4`
+collapses to `gpt4`, never to a loose `gpt`), and consecutive source words are merged on
+demand so `YouTube Shorts` also supports prose writing `YouTube-Shorts`. A match then counts
+in either length direction: the source may be longer than the token, which is how `YouTube`
+vouches for `YouTubers`, or shorter, which is how a source writing `GPT` vouches for prose
+writing `GPT-4`. The shorter-source direction has a floor of three characters — the length of
+`GPT`, the shortest stem that has to keep working — because a bidirectional prefix rule with
+a two-character floor lets `AI`, `EE` or `Op` vouch for every brand starting those letters and
+the guard would quietly stop guarding. Collapsing punctuation never collapses the left
+anchor, so `UTube` is still caught against an article that only ever writes `YouTube`, and the
+existing rule that a source `GPT-4` does not vouch for prose `GPT-5` still holds.
+
+**What is still a false positive.** Any alphanumeric identifier that reaches reader-visible
+prose and is absent from the article body — short codes such as `Q3` or `T4` that the source
+spells out in words, and the 16-character hex `article_id` that the integration harness prints
+into fake headlines — is checkable by shape and unsupported by text, so it still drops a
+story. A thin or truncated `clean_text` widens the same hole: the fewer words ingestion
+collected, the more of the model's correct names have nothing to vouch for them. And the left
+anchor means a brand the prose *opens* differently from the source is unreachable by any
+loosening, because that anchor is exactly what makes `UTube` catchable. These are accepted:
+each one costs at most a story, and the manifest records every drop.

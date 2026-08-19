@@ -130,6 +130,82 @@ def test_violations_come_back_in_a_stable_order() -> None:
     ]
 
 
+# --------------------------------------------------------------------------- #
+# punctuation and morphology must not delete a faithful story
+# --------------------------------------------------------------------------- #
+
+
+def test_a_hyphen_the_source_does_not_write_is_not_a_violation() -> None:
+    """Scraped English drops the dash a model almost always prints."""
+    rows = [
+        ("OpenAI released GPT4 today.", "OpenAI presentó GPT-4 a las empresas."),
+        ("Nvidia H100 shipments rose.", "Los chips H-100 de Nvidia."),
+    ]
+    for source, prose in rows:
+        assert find_unsupported_entities({"summary": prose}, source) == [], prose
+
+
+def test_a_hyphen_the_source_writes_as_a_space_is_not_a_violation() -> None:
+    """`YouTube Shorts` in the article, `YouTube-Shorts` in the edition."""
+    source = "YouTube Shorts grew fast."
+
+    assert find_unsupported_entities({"summary": "YouTube-Shorts creció rápido."}, source) == []
+
+
+def test_spanish_morphology_longer_than_the_source_is_not_a_violation() -> None:
+    """`YouTubers` is ordinary Spanish tech vocabulary; the source says `YouTube`."""
+    source = "YouTube changed its rules."
+
+    assert find_unsupported_entities({"summary": "Los YouTubers ganan menos ahora."}, source) == []
+
+
+def test_the_corruption_survives_all_of_that_and_is_still_caught() -> None:
+    """The whole reason the module exists: `utube` is a substring of `youtube`."""
+    source = "YouTube already used this for Shorts."
+    violations = find_unsupported_entities(
+        {"summary": "Esta política, que UTube aplicó antes."}, source
+    )
+
+    assert [v.token for v in violations] == ["UTube"]
+
+
+def test_spanish_acronyms_stay_clean_against_an_unrelated_source() -> None:
+    source = "YouTube changed its rules."
+
+    assert (
+        find_unsupported_entities({"summary": "La IA generativa y el CEO según la API."}, source)
+        == []
+    )
+
+
+def test_merging_adjacent_words_cannot_manufacture_a_corrupted_brand() -> None:
+    """Merging across whitespace is permissive, but it never starts mid-word."""
+    source = "You use the tube for video on YouTube every day."
+    violations = find_unsupported_entities({"summary": "UTube paga menos."}, source)
+
+    assert [v.token for v in violations] == ["UTube"]
+
+
+def test_a_three_letter_source_stem_supports_a_longer_model_number() -> None:
+    assert find_unsupported_entities({"summary": "Llegó GPT-4."}, "GPT is here.") == []
+
+
+def test_a_source_stem_shorter_than_three_characters_vouches_for_nothing() -> None:
+    """Without a floor, a bidirectional prefix rule stops guarding anything."""
+    prose = {"summary": "UTube paga menos."}
+
+    assert [v.token for v in find_unsupported_entities(prose, "Ut.")] == ["UTube"]
+    assert find_unsupported_entities(prose, "UTu.") == []
+
+
+def test_ignoring_punctuation_does_not_excuse_the_wrong_model_number() -> None:
+    source = "OpenAI released GPT4 today."
+
+    assert [v.token for v in find_unsupported_entities({"summary": "Llegó GPT-5."}, source)] == [
+        "GPT-5"
+    ]
+
+
 def test_a_violation_names_the_field_the_token_and_the_story() -> None:
     violation = find_unsupported_entities({"headline": "UTube"}, SOURCE, article_id="art9")[0]
 
