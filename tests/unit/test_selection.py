@@ -19,6 +19,7 @@ from newsletter.ranking.selection import (
     REASON_DUPLICATE_EVENT,
     REASON_EXCLUDED_CATEGORY,
     REASON_MAX_ITEMS,
+    REASON_SOURCE_LIMIT,
     select,
 )
 
@@ -342,3 +343,65 @@ def test_every_rejection_carries_a_reason() -> None:
         REASON_EXCLUDED_CATEGORY,
     }
     assert len(result.selected) + len(result.rejected) == len(ranked)
+
+
+# --------------------------------------------------------------------------- #
+# per-source cap — no one publication takes over an edition
+# --------------------------------------------------------------------------- #
+
+
+def make_from(source_id: str, article_id: str, score: int, category=TopicCategory.AI_MODELS):
+    ranked = make_ranked(article_id, score, category=category)
+    return ranked.model_copy(
+        update={"article": ranked.article.model_copy(update={"source_id": source_id})}
+    )
+
+
+CAPPED = NewsletterSettings(max_items=8, min_score=70, max_per_source=2)
+
+
+def test_one_source_cannot_fill_the_edition() -> None:
+    ranked = [make_from("loudest", f"a{i}", 95 - i) for i in range(5)]
+    result = select(ranked, CAPPED)
+
+    assert len(result.selected) == 2
+    assert result.reasons() == {REASON_SOURCE_LIMIT: 3}
+
+
+def test_the_cap_keeps_the_best_from_each_source() -> None:
+    ranked = [
+        make_from("loudest", "top", 95),
+        make_from("loudest", "second", 90),
+        make_from("loudest", "third", 85),
+        make_from("quieter", "other", 80),
+    ]
+    result = select(ranked, CAPPED)
+
+    assert [r.article.article_id for r in result.selected] == ["top", "second", "other"]
+
+
+def test_a_capped_source_does_not_block_a_lower_scoring_one() -> None:
+    """The point of the cap: room is left for other voices."""
+    ranked = [make_from("loudest", f"a{i}", 95 - i) for i in range(4)]
+    ranked.append(make_from("quieter", "quiet", 71))
+
+    selected = select(ranked, CAPPED).selected
+
+    assert {r.article.source_id for r in selected} == {"loudest", "quieter"}
+
+
+def test_no_cap_by_default() -> None:
+    """Existing configurations keep working; the cap is opt-in."""
+    ranked = [make_from("loudest", f"a{i}", 95 - i) for i in range(4)]
+    settings = NewsletterSettings(max_items=8, min_score=70)
+
+    assert settings.max_per_source is None
+    assert len(select(ranked, settings).selected) == 4
+
+
+def test_the_cap_is_reported_like_every_other_rejection() -> None:
+    ranked = [make_from("loudest", f"a{i}", 95 - i) for i in range(4)]
+    result = select(ranked, CAPPED)
+
+    assert len(result.selected) + len(result.rejected) == len(ranked)
+    assert all(item.reason == REASON_SOURCE_LIMIT for item in result.rejected)

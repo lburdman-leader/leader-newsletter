@@ -9,7 +9,8 @@ The rules, applied in order to articles sorted best-first:
 1. drop excluded categories (``other`` by default);
 2. drop anything below ``min_score``;
 3. respect the per-category cap, so one topic cannot monopolise the edition;
-4. stop at ``max_items``.
+4. respect the per-source cap, so one publication cannot either;
+5. stop at ``max_items``.
 
 Every rejection is recorded with its reason, so an empty or thin edition can be
 explained from the run report instead of guessed at.
@@ -31,6 +32,7 @@ logger = get_logger("selection")
 REASON_EXCLUDED_CATEGORY = "category_excluded"
 REASON_BELOW_THRESHOLD = "below_threshold"
 REASON_CATEGORY_LIMIT = "category_limit"
+REASON_SOURCE_LIMIT = "source_limit"
 REASON_MAX_ITEMS = "max_items"
 REASON_DUPLICATE_EVENT = "duplicate_event"
 
@@ -105,6 +107,7 @@ def select(
 
     excluded = set(settings.excluded_categories)
     per_category: dict[TopicCategory, int] = {}
+    per_source: dict[str, int] = {}
 
     for article in candidates:
         category = article.assessment.category
@@ -128,7 +131,14 @@ def select(
             result.rejected.append(RejectedArticle(article, REASON_CATEGORY_LIMIT))
             continue
 
+        source_id = article.article.source_id
+        from_source = per_source.get(source_id, 0)
+        if settings.max_per_source is not None and from_source >= settings.max_per_source:
+            result.rejected.append(RejectedArticle(article, REASON_SOURCE_LIMIT))
+            continue
+
         per_category[category] = taken + 1
+        per_source[source_id] = from_source + 1
         result.selected.append(article)
 
     if manifest is not None:

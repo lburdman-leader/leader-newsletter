@@ -8,7 +8,11 @@
 # strategy: rss | scrapling_static | scrapling_dynamic | scrapling_stealth
 #   Always pick the cheapest option that actually works, in that order.
 #   The strategy is static configuration; a model never chooses it at runtime.
-# priority: 0-10, added directly to the deterministic score.
+# priority: 0-10, added directly to the deterministic score. Deliberately a
+#   coarse TRUST TIER, not a ranking: 7 = the organisation announcing its own
+#   news, 6 = specialist trade press, 5 = general tech press. A wide spread lets
+#   the source outvote the story, which is how one publisher takes over an
+#   edition (ADR-0030).
 # category_hint: a hint for the analyzer, not the final category.
 #
 # selectors (scrapling_* strategies only):
@@ -31,7 +35,7 @@ sources:
     category_hint: youtube_platform
     entrypoint: "https://blog.youtube/rss/"
     strategy: rss
-    priority: 10
+    priority: 7
     enabled: true
 
   - id: tubefilter
@@ -39,7 +43,7 @@ sources:
     category_hint: youtube_monetization
     entrypoint: "https://www.tubefilter.com/feed/"
     strategy: rss
-    priority: 7
+    priority: 6
     enabled: true
 
   # --- AI models and APIs ------------------------------------------------
@@ -48,7 +52,7 @@ sources:
     category_hint: ai_models
     entrypoint: "https://openai.com/news/rss.xml"
     strategy: rss
-    priority: 10
+    priority: 7
     enabled: true
 
   - id: google-deepmind-blog
@@ -56,7 +60,7 @@ sources:
     category_hint: ai_models
     entrypoint: "https://deepmind.google/blog/rss.xml"
     strategy: rss
-    priority: 8
+    priority: 7
     enabled: true
 
   - id: huggingface-blog
@@ -64,7 +68,7 @@ sources:
     category_hint: ai_models
     entrypoint: "https://huggingface.co/blog/feed.xml"
     strategy: rss
-    priority: 7
+    priority: 6
     enabled: true
 
   - id: arstechnica-ai
@@ -72,7 +76,7 @@ sources:
     category_hint: ai_models
     entrypoint: "https://arstechnica.com/ai/feed/"
     strategy: rss
-    priority: 6
+    priority: 5
     enabled: true
 
   # --- AI business -------------------------------------------------------
@@ -81,7 +85,7 @@ sources:
     category_hint: ai_business
     entrypoint: "https://techcrunch.com/category/artificial-intelligence/feed/"
     strategy: rss
-    priority: 6
+    priority: 5
     enabled: true
 
   - id: venturebeat-ai
@@ -89,7 +93,7 @@ sources:
     category_hint: ai_business
     entrypoint: "https://venturebeat.com/category/ai/feed/"
     strategy: rss
-    priority: 6
+    priority: 5
     enabled: true
 
   - id: theverge-ai
@@ -108,7 +112,7 @@ sources:
     category_hint: ai_models
     entrypoint: "https://www.anthropic.com/news"
     strategy: scrapling_static
-    priority: 9
+    priority: 7
     enabled: false
     # Selectors are placeholders until Stage 2 verification confirms the DOM.
     selectors:
@@ -122,7 +126,7 @@ sources:
     category_hint: ai_video
     entrypoint: "https://runwayml.com/research"
     strategy: scrapling_static
-    priority: 7
+    priority: 6
     enabled: false
     # Selectors are placeholders until Stage 2 verification confirms the DOM.
     selectors:

@@ -21,6 +21,9 @@ newsletter:
   # analyzer event fingerprint (subject + action + object + date).
   collapse_events: true
 
+  # No single publication may fill the edition, however well it scores.
+  max_per_source: 2
+
   # Caps that stop one topic monopolising the edition.
   section_limits:
     youtube_platform: 2
@@ -55,9 +58,9 @@ newsletter:
 submissions:
   enabled: true
   source_name: "Reader submission"
-  # Modest on purpose: a submitted link should not outrank a trusted publication
-  # merely because somebody submitted it.
-  priority: 4
+  # Top tier: a submitted link competes on equal footing with a primary source.
+  # It still has to clear min_score on the rubric like everything else.
+  priority: 7
   max_per_run: 20
   require_https: true
   blocked_hosts: []

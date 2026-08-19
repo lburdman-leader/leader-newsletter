@@ -701,3 +701,37 @@ accents the **last word** of whatever masthead is configured, so the two-tone su
 renamed publication, and the sidebar always holds `sections[0]` with the rest below, which
 keeps the choice deterministic. The lead's category label comes from the edition's own
 section titles, falling back to the configured defaults.
+
+---
+
+## 2026-08-19 · ADR-0030 · Priority is a trust tier, not a ranking; no source may fill an edition
+
+**Decision.** Two changes, after the first live run published four of seven stories from one
+publisher. Source priorities were flattened from a 5-10 spread to three coarse trust tiers
+— 7 for an organisation announcing its own news, 6 for specialist trade press, 5 for
+general tech press — and `newsletter.max_per_source` (2) caps how many stories any one
+source may contribute. Reader submissions moved from priority 4 to 7, so a submitted link
+competes on equal footing with a primary source. The score formula is untouched: the PRD
+fixes it, and priority is configuration.
+
+**Reason.** With priorities spread 5-10, the source moved a story more than its own merits
+did. The evidence was exact: a submitted post scored 64 and was rejected, while the
+identical assessment from a priority-10 source would have scored 70 and published. That is
+priority doing the selecting. Re-running the same week with tiers and a cap changed the
+edition from three sources to five: two stories that had been crowded out — a Hugging Face
+cluster-utilisation piece and a Groq funding round, both scoring 72-75 on the rubric alone
+— replaced two lower-merit stories that had ridden a +10 boost. The bar on merit went up.
+
+**Alternatives.** Lower `min_score` (publishes more of everything rather than fixing the
+distortion); reduce the priority weight in the formula (the PRD specifies it, and
+configuration was the right lever); leave it (the paper reads like one company's press
+page).
+
+**Consequences.** `max_per_source` defaults to None, so the cap is opt-in and existing
+configurations are unaffected. A rejection now carries a `source_limit` reason alongside
+the others. Two limits worth stating: raising a submission to the top tier did **not** make
+the tested post publishable — it moved from 64 to 67 against a threshold of 70, because on
+326 characters of tweet it scored 60 on a rubric where the published set scored 71-78. The
+remedy for a thin submission is more context to judge, not a bigger thumb on the scale. And
+a decided submission is never re-offered, so a policy change does not reconsider it; there
+is no re-queue command yet.

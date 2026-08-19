@@ -65,6 +65,9 @@ class NewsletterSettings(ValueModel):
     collapse_events: bool = True
     #: Per-category caps that prevent one topic monopolising the edition.
     section_limits: dict[TopicCategory, int] = Field(default_factory=dict)
+    #: Cap per source, so no single publication can fill the edition. None means
+    #: no cap; the category limits and max_items still apply.
+    max_per_source: int | None = Field(default=None, ge=1, le=50)
     #: Publication order of the sections.
     section_order: list[TopicCategory] = Field(default_factory=list)
     section_titles: dict[TopicCategory, str] = Field(default_factory=dict)
