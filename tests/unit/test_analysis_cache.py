@@ -138,12 +138,12 @@ def test_a_new_prompt_version_invalidates_cached_assessments(db: Database) -> No
 
     # Same article, same model, new prompt: the judgment must be redone.
     new_client, new_fake, _ = make_client(ok_response(topic_relevance=2))
-    new_analyzer = ArticleAnalyzer(new_client, cache=db, prompt_version="v1", schema_version="2")
+    new_analyzer = ArticleAnalyzer(new_client, cache=db, prompt_version="v1", schema_version="3")
     record = new_analyzer.analyze(make_article(), make_source(), now=NOW)
 
     assert len(new_fake.responses.calls) == 1
     assert record.assessment.topic_relevance == 2
-    assert record.schema_version == "2"
+    assert record.schema_version == "3"
 
 
 def test_a_new_model_invalidates_cached_assessments(db: Database) -> None:
@@ -164,7 +164,7 @@ def test_both_generations_of_an_assessment_are_retained(db: Database) -> None:
     old_record = old_analyzer.analyze(make_article(), make_source(), now=NOW)
 
     new_client, _, _ = make_client(ok_response(topic_relevance=1))
-    new_analyzer = ArticleAnalyzer(new_client, cache=db, schema_version="2")
+    new_analyzer = ArticleAnalyzer(new_client, cache=db, schema_version="3")
     new_record = new_analyzer.analyze(make_article(), make_source(), now=NOW)
 
     assert db.get_assessment(old_record.key).assessment.topic_relevance == 5

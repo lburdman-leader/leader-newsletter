@@ -40,7 +40,7 @@ from newsletter.models import (
 logger = get_logger("intelligence.analyzer")
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
-ANALYZER_PROMPT_VERSION = "v1"
+ANALYZER_PROMPT_VERSION = "v2"
 
 #: Article text budget per request. Long enough for a full article, short enough
 #: to bound cost. Truncation is explicit and marked, never silent.

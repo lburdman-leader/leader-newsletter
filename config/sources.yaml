@@ -29,7 +29,7 @@
 # authoritative time filter runs in Stage 3 on the normalized article.
 
 sources:
-  # --- YouTube -----------------------------------------------------------
+  # --- YouTube, creators and children's content --------------------------
   - id: youtube-official-blog
     name: YouTube Official Blog
     category_hint: youtube_platform
@@ -42,6 +42,22 @@ sources:
     name: Tubefilter
     category_hint: youtube_monetization
     entrypoint: "https://www.tubefilter.com/feed/"
+    strategy: rss
+    priority: 6
+    enabled: true
+
+  - id: cartoon-brew
+    name: Cartoon Brew
+    category_hint: kids_content
+    entrypoint: "https://www.cartoonbrew.com/feed"
+    strategy: rss
+    priority: 6
+    enabled: true
+
+  - id: social-media-today
+    name: Social Media Today
+    category_hint: youtube_platform
+    entrypoint: "https://www.socialmediatoday.com/feeds/news/"
     strategy: rss
     priority: 6
     enabled: true

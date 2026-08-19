@@ -1,9 +1,15 @@
 # Weekly Intelligence Newspaper Engine
 
-Generates a weekly enterprise intelligence **newspaper** — HTML, Markdown and JSON — from
-a controlled set of public sources covering YouTube platform changes, YouTube
-monetization, new AI models and APIs, AI video and creative AI, and AI developments with
-concrete business impact.
+Generates a weekly intelligence **newspaper** — HTML, Markdown and JSON — from a
+controlled set of public sources covering YouTube platform changes, YouTube monetization,
+children's and family content, AI video and creative AI, new AI models and APIs, and AI
+developments with concrete business impact.
+
+The edition is written **in Spanish**, for the team at Leader Entertainment: a Latin
+American company that makes children's content on YouTube and is becoming an AI content
+company. Audience is not a rendering concern here — it is in the rubric the model rates
+against and in the brief the editor writes (see
+[ADR-0032](docs/decisions.md)).
 
 The design principle is deliberate: **AI for judgment, software for rules and
 guarantees.** Discovery, date filtering, deduplication, scoring, selection and rendering
@@ -26,8 +32,9 @@ python -m newsletter run --dry-run    # fetch sources, no OpenAI call, no files 
 python -m newsletter run              # generate this week's edition
 ```
 
-Open `output/<issue>/newsletter.html` in a browser. There is a generated example in
-`output/fixture-edition/2026-W34/` if you want to see one before running anything.
+Open `output/<issue>/newsletter.html` in a browser. For an example that needs neither a
+key nor a network, run `python scripts/refresh_fixture_edition.py` and open
+`output/fixture-edition/2026-W34/newsletter.html`.
 
 ## How it works
 

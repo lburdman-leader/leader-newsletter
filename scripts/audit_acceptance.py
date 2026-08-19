@@ -93,8 +93,8 @@ def ac5_markdown_links() -> Result:
     if markdown is None:
         return FAIL, "no newsletter.md in the fixture edition"
     links = re.findall(r"^### \[[^\]]+\]\((https://[^)]+)\)", markdown, re.MULTILINE)
-    if not links or markdown.count("[Read original →](") != len(links):
-        return FAIL, "headline and read-original links do not match"
+    if not links or markdown.count("[Ver la fuente →](") != len(links):
+        return FAIL, "headline and source links do not match"
     return PASS, f"{len(links)} Markdown headline links"
 
 
@@ -178,7 +178,7 @@ def ac12_newspaper_presentation() -> Result:
     html = artifact("newsletter.html")
     if html is None:
         return FAIL, "no newsletter.html in the fixture edition"
-    for needle in ("masthead", "Executive Brief", "Lead Story", "section-label", "@media"):
+    for needle in ("masthead", "Lo esencial", "Nota principal", "section-label", "@media"):
         if needle not in html:
             return FAIL, f"the edition has no {needle}"
     if "<script" in html.lower():

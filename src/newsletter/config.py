@@ -30,13 +30,16 @@ DEFAULT_CONFIG_DIR = Path("config")
 SOURCES_FILE = "sources.yaml"
 NEWSLETTER_FILE = "newsletter.yaml"
 
+#: Section headings as they are printed. The newsletter is published in Spanish
+#: for a Latin American audience; the code around it stays in English.
 DEFAULT_SECTION_TITLES: dict[TopicCategory, str] = {
-    TopicCategory.AI_MODELS: "AI Models & APIs",
-    TopicCategory.AI_VIDEO: "AI Video & Creative AI",
-    TopicCategory.AI_BUSINESS: "AI in Business",
-    TopicCategory.YOUTUBE_PLATFORM: "YouTube Platform",
-    TopicCategory.YOUTUBE_MONETIZATION: "YouTube Monetization",
-    TopicCategory.OTHER: "Also Noted",
+    TopicCategory.YOUTUBE_PLATFORM: "YouTube: la plataforma",
+    TopicCategory.YOUTUBE_MONETIZATION: "YouTube: monetización",
+    TopicCategory.KIDS_CONTENT: "Contenido infantil y familiar",
+    TopicCategory.AI_VIDEO: "IA para video y creatividad",
+    TopicCategory.AI_MODELS: "Herramientas y modelos de IA",
+    TopicCategory.AI_BUSINESS: "IA en los negocios",
+    TopicCategory.OTHER: "También pasó",
 }
 
 

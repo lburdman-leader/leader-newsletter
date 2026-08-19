@@ -15,12 +15,12 @@
   block and to the accent fills.
 #}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ edition.masthead }} — {{ edition.issue_label }}</title>
-<meta name="description" content="Weekly enterprise intelligence briefing for {{ edition.period_start | issue_date }} to {{ edition.period_end | issue_date_end }}.">
+<meta name="description" content="Resumen semanal de inteligencia para {{ edition.period_start | issue_date }} al {{ edition.period_end | issue_date_end }}.">
 <style>
   :root {
     --accent: #1a44d6;
@@ -316,7 +316,7 @@
   <header>
     <div class="masthead-top">
       <span>{{ edition.period_start | issue_date }} &ndash; {{ edition.period_end | issue_date_end }}</span>
-      <span>Weekly briefing</span>
+      <span>Resumen semanal</span>
     </div>
 
     <div class="masthead-lockup">
@@ -339,13 +339,13 @@
 
     <div class="masthead-foot">
       <span>{{ tagline }}</span>
-      <span>{{ items | length }} {{ "story" if items | length == 1 else "stories" }}</span>
+      <span>{{ items | length }} {{ "nota" if items | length == 1 else "notas" }}</span>
     </div>
   </header>
 
   <section aria-labelledby="brief-heading">
     <div class="rule-row">
-      <h2 class="section-label eyebrow" id="brief-heading">Executive Brief</h2>
+      <h2 class="section-label eyebrow" id="brief-heading">Lo esencial de la semana</h2>
       <span class="fill"></span>
     </div>
     <div class="brief">
@@ -364,7 +364,7 @@
 
     <article class="lead" aria-labelledby="lead-heading">
       <div class="lead-band">
-        <span class="kicker">Lead Story</span>
+        <span class="kicker">Nota principal</span>
         <span class="category">{{ category_titles[lead.category] }}</span>
         <span class="score">{{ lead.score }}</span>
       </div>
@@ -376,7 +376,7 @@
       <p class="summary">{{ lead.summary }}</p>
 
       <div class="why-lead">
-        <strong>Why it matters</strong>
+        <strong>Por qué importa</strong>
         <p>{{ lead.why_it_matters }}</p>
       </div>
 
@@ -391,7 +391,7 @@
       <p class="meta">
         <span class="source"><a href="{{ lead.source_url }}" target="_blank" rel="noopener noreferrer">{{ lead.source_name }}</a></span>
         <span>{{ lead.published_at | issue_date }}</span>
-        <a class="read-original" href="{{ lead.source_url }}" target="_blank" rel="noopener noreferrer">Read original &rarr;</a>
+        <a class="read-original" href="{{ lead.source_url }}" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
       </p>
     </article>
 
@@ -404,11 +404,11 @@
           <a href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ item.headline }}</a>
         </h3>
         <p class="summary">{{ item.summary }}</p>
-        <p class="why"><strong>Why it matters:</strong> {{ item.why_it_matters }}</p>
+        <p class="why"><strong>Por qué importa:</strong> {{ item.why_it_matters }}</p>
         <p class="meta">
           <span class="source"><a href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ item.source_name }}</a></span>
           <span>{{ item.published_at | issue_date }}</span>
-          <a class="read-original" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">Read original &rarr;</a>
+          <a class="read-original" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
         </p>
       </article>
       {% endfor %}
@@ -421,7 +421,7 @@
     <div class="rule-row">
       <h2 class="section-label" id="section-{{ loop.index }}">{{ section.title }}</h2>
       <span class="fill"></span>
-      <span class="count">{{ section.items | length }} {{ "story" if section.items | length == 1 else "stories" }}</span>
+      <span class="count">{{ section.items | length }} {{ "nota" if section.items | length == 1 else "notas" }}</span>
     </div>
     <div class="stories">
       {% for item in section.items %}
@@ -430,11 +430,11 @@
           <a href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ item.headline }}</a>
         </h3>
         <p class="summary">{{ item.summary }}</p>
-        <p class="why"><strong>Why it matters:</strong> {{ item.why_it_matters }}</p>
+        <p class="why"><strong>Por qué importa:</strong> {{ item.why_it_matters }}</p>
         <p class="meta">
           <span class="source"><a href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">{{ item.source_name }}</a></span>
           <span>{{ item.published_at | issue_date }}</span>
-          <a class="read-original" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">Read original &rarr;</a>
+          <a class="read-original" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
         </p>
       </article>
       {% endfor %}
@@ -443,10 +443,10 @@
   {% endfor %}
 
   <footer class="colophon">
-    <span>{{ edition.masthead }} &middot; Issue {{ edition.issue_label }}</span>
-    <span>Generated {{ edition.generated_at | issue_datetime }} from {{ items | length }} selected {{ "story" if items | length == 1 else "stories" }}</span>
+    <span>{{ edition.masthead }} &middot; edición {{ edition.issue_label }}</span>
+    <span>Generado el {{ edition.generated_at | issue_datetime }} a partir de {{ items | length }} {{ "nota" if items | length == 1 else "notas" }}</span>
   </footer>
-  <p class="colophon-note">Every headline links to its original source. Stories are selected by score, not by sponsorship.</p>
+  <p class="colophon-note">Cada titular lleva a su fuente original. Las notas se eligen por puntaje, no por patrocinio.</p>
 
 </main>
 </body>

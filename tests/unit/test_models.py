@@ -40,8 +40,9 @@ def test_topic_taxonomy_is_closed() -> None:
     assert [c.value for c in TopicCategory] == [
         "youtube_platform",
         "youtube_monetization",
-        "ai_models",
+        "kids_content",
         "ai_video",
+        "ai_models",
         "ai_business",
         "other",
     ]

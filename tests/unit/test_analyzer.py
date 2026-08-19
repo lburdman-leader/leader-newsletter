@@ -341,7 +341,7 @@ def test_analyze_returns_a_record_with_full_provenance() -> None:
     assert isinstance(record, AssessmentRecord)
     assert record.model == "gpt-4.1-mini"
     assert record.prompt_version == ANALYZER_PROMPT_VERSION
-    assert record.schema_version == "1"
+    assert record.schema_version == "2"
     assert record.content_hash == "contenthash-a1"
     assert record.created_at == NOW
     assert record.assessment.category is TopicCategory.AI_MODELS

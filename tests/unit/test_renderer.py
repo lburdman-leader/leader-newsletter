@@ -296,17 +296,17 @@ def test_the_deterministic_brief_is_used_when_there_is_no_editor(edition) -> Non
 
 def test_html_has_a_masthead_and_issue_metadata(html: str) -> None:
     assert "AI &amp; Digital Intelligence Weekly" in html
-    assert "Issue 2026-W34" in html
+    assert "edición 2026-W34" in html
     # The window is half-open: it ends at midnight on the 18th and therefore
     # covers the 17th. Printing "18 Aug" would claim a day it does not include.
-    assert "11 Aug 2026" in html and "17 Aug 2026" in html
-    assert "18 Aug 2026" not in html.split("</header>")[0]
+    assert "11 ago 2026" in html and "17 ago 2026" in html
+    assert "18 ago 2026" not in html.split("</header>")[0]
 
 
 def test_html_has_an_executive_brief_and_a_lead_story(html: str) -> None:
-    assert "Executive Brief" in html
+    assert "Lo esencial de la semana" in html
     assert 'class="lead"' in html
-    assert "Lead Story" in html
+    assert "Nota principal" in html
 
 
 def test_html_has_at_least_two_publication_sections(html: str) -> None:
@@ -393,7 +393,7 @@ def test_every_story_is_a_markdown_link(markdown: str, edition) -> None:
 
 
 def test_markdown_has_a_read_original_link_per_story(markdown: str, edition) -> None:
-    assert markdown.count("[Read original →](") == len(edition.all_items())
+    assert markdown.count("[Ver la fuente →](") == len(edition.all_items())
 
 
 def test_markdown_structure_is_valid(markdown: str) -> None:
@@ -403,12 +403,12 @@ def test_markdown_structure_is_valid(markdown: str) -> None:
         if line.strip() == "---" and index > 0:
             # A rule directly after text would be a setext heading, not a rule.
             assert lines[index - 1].strip() == "", f"line {index}: rule needs a blank line above"
-    assert "## Executive Brief" in markdown
-    assert "## Lead Story" in markdown
+    assert "## Lo esencial de la semana" in markdown
+    assert "## Nota principal" in markdown
 
 
 def test_markdown_brief_is_a_real_list(markdown: str, edition) -> None:
-    brief = markdown.split("## Executive Brief", 1)[1].split("---", 1)[0]
+    brief = markdown.split("## Lo esencial de la semana", 1)[1].split("---", 1)[0]
     bullets = [line for line in brief.splitlines() if line.startswith("- ")]
     assert len(bullets) == len(edition.executive_summary)
 
@@ -525,4 +525,4 @@ def test_the_golden_html_still_carries_its_links() -> None:
     html = (GOLDEN / "expected_newsletter.html").read_text(encoding="utf-8")
     assert html.count('rel="noopener noreferrer"') >= 3
     assert "<script" not in html.lower()
-    assert "Executive Brief" in html
+    assert "Lo esencial de la semana" in html

@@ -25,7 +25,7 @@ from newsletter.models import ArticleAssessment, TopicCategory
 
 #: Bumped whenever this wire schema changes shape. Part of the cache identity,
 #: so a schema change can never reuse an assessment produced by the old one.
-ASSESSMENT_SCHEMA_VERSION = "1"
+ASSESSMENT_SCHEMA_VERSION = "2"
 
 #: Keywords OpenAI strict Structured Outputs does not accept. Asserted in tests.
 UNSUPPORTED_SCHEMA_KEYWORDS: frozenset[str] = frozenset(
@@ -88,13 +88,19 @@ class AssessmentPayload(BaseModel):
         description="Float 0.0-1.0. Your confidence given the evidence in the article text."
     )
     summary: str = Field(
-        description="2-3 factual sentences drawn only from the article. No interpretation."
+        description=(
+            "En español neutro: 2-3 frases estrictamente factuales, tomadas solo del "
+            "artículo. Sin interpretación."
+        )
     )
     why_it_matters: str = Field(
-        description="1-2 sentences of interpretation for an enterprise reader."
+        description=(
+            "En español neutro: 1-2 frases sobre qué significa esto para una empresa que "
+            "hace contenido infantil en YouTube y produce con IA."
+        )
     )
     key_facts: list[str] = Field(
-        description="Up to 8 short factual bullets, each supported by the article text."
+        description="En español neutro: hasta 8 datos breves y verificables del artículo."
     )
     event_subject: str | None = Field(
         description="Who or what acted, e.g. 'OpenAI'. Null if the article has no single actor."

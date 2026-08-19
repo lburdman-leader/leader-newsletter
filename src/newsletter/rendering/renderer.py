@@ -70,13 +70,32 @@ class RenderError(Exception):
 # --------------------------------------------------------------------------- #
 
 
+#: Month abbreviations, written out rather than taken from the system locale:
+#: the edition must read the same on any machine that renders it.
+SPANISH_MONTHS: tuple[str, ...] = (
+    "ene",
+    "feb",
+    "mar",
+    "abr",
+    "may",
+    "jun",
+    "jul",
+    "ago",
+    "sep",
+    "oct",
+    "nov",
+    "dic",
+)
+
+
 def issue_date(value: datetime) -> str:
-    """``17 Aug 2026`` -- unambiguous for both British and American readers."""
-    return f"{value.day} {value:%b %Y}"
+    """``17 ago 2026`` -- day first, as Spanish readers expect."""
+    return f"{value.day} {SPANISH_MONTHS[value.month - 1]} {value.year}"
 
 
 def issue_datetime(value: datetime) -> str:
-    return f"{value.day} {value:%b %Y at %H:%M %Z}".strip()
+    zone = f" {value:%Z}".rstrip()
+    return f"{issue_date(value)}, {value:%H:%M}{zone}"
 
 
 def issue_date_end(value: datetime) -> str:

@@ -31,8 +31,10 @@ class TopicCategory(StrEnum):
 
     YOUTUBE_PLATFORM = "youtube_platform"
     YOUTUBE_MONETIZATION = "youtube_monetization"
-    AI_MODELS = "ai_models"
+    #: Children's and family content: audience trends, regulation, formats.
+    KIDS_CONTENT = "kids_content"
     AI_VIDEO = "ai_video"
+    AI_MODELS = "ai_models"
     AI_BUSINESS = "ai_business"
     OTHER = "other"
 

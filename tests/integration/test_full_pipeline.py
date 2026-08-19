@@ -378,7 +378,7 @@ def test_the_rendered_html_is_clickable_and_scriptless(
         assert f'href="{item.source_url}"' in html
     assert html.count("read-original") >= len(result.edition.all_items())
     assert "<script" not in html.lower()
-    assert "Executive Brief" in html
+    assert "Lo esencial de la semana" in html
 
 
 def test_the_rendered_markdown_links_every_story(tmp_path: Path, http: FakeHttpClient) -> None:

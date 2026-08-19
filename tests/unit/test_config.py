@@ -66,7 +66,8 @@ def test_repository_configuration_is_valid() -> None:
     config = load_config(REAL_CONFIG_DIR, env={})
     assert config.sources
     assert config.enabled_sources
-    assert config.newsletter.min_score == 70
+    assert config.newsletter.min_score == 62  # recalibrated for the v2 rubric
+    assert config.newsletter.masthead == "Leader Intelligence Semanal"
     assert config.newsletter.max_items == 8
 
 
@@ -308,6 +309,7 @@ def test_ordered_categories_respects_order_and_exclusions() -> None:
         TopicCategory.AI_MODELS,
         TopicCategory.YOUTUBE_PLATFORM,
         TopicCategory.YOUTUBE_MONETIZATION,
+        TopicCategory.KIDS_CONTENT,
         TopicCategory.AI_VIDEO,
     }
 

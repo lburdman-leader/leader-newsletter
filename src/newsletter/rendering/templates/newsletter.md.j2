@@ -7,11 +7,11 @@
 #}
 # {{ edition.masthead | md }}
 
-**Issue {{ edition.issue_label | md }}** · {{ edition.period_start | issue_date }} – {{ edition.period_end | issue_date_end }} · {{ edition.all_items() | length }} stories
+**Edición {{ edition.issue_label | md }}** · {{ edition.period_start | issue_date }} – {{ edition.period_end | issue_date_end }} · {{ edition.all_items() | length }} notas
 
 ---
 
-## Executive Brief
+## Lo esencial de la semana
 
 {% for bullet in edition.executive_summary %}
 - {{ bullet | md }}
@@ -19,14 +19,14 @@
 
 ---
 
-## Lead Story
+## Nota principal
 
 {% set lead = edition.lead_story %}
 ### [{{ lead.headline | md }}]({{ lead.source_url }})
 
 {{ lead.summary | md }}
 
-**Why it matters:** {{ lead.why_it_matters | md }}
+**Por qué importa:** {{ lead.why_it_matters | md }}
 
 {% if lead.key_facts %}
 {% for fact in lead.key_facts %}
@@ -34,7 +34,7 @@
 {% endfor %}
 
 {% endif %}
-{{ lead.source_name | md }} · {{ lead.published_at | issue_date }} · [Read original →]({{ lead.source_url }})
+{{ lead.source_name | md }} · {{ lead.published_at | issue_date }} · [Ver la fuente →]({{ lead.source_url }})
 
 {% for section in edition.sections %}
 ---
@@ -46,12 +46,12 @@
 
 {{ item.summary | md }}
 
-**Why it matters:** {{ item.why_it_matters | md }}
+**Por qué importa:** {{ item.why_it_matters | md }}
 
-{{ item.source_name | md }} · {{ item.published_at | issue_date }} · [Read original →]({{ item.source_url }})
+{{ item.source_name | md }} · {{ item.published_at | issue_date }} · [Ver la fuente →]({{ item.source_url }})
 
 {% endfor %}
 {% endfor %}
 ---
 
-*{{ edition.masthead | md }} · Issue {{ edition.issue_label | md }} · generated {{ edition.generated_at | issue_datetime }} from {{ edition.all_items() | length }} selected stories.*
+*{{ edition.masthead | md }} · edición {{ edition.issue_label | md }} · generado el {{ edition.generated_at | issue_datetime }} a partir de {{ edition.all_items() | length }} notas.*

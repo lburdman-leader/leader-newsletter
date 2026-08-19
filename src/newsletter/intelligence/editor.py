@@ -42,8 +42,8 @@ from newsletter.ranking.selection import SelectionResult
 logger = get_logger("intelligence.editor")
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
-EDITOR_PROMPT_VERSION = "v1"
-EDITOR_SCHEMA_VERSION = "1"
+EDITOR_PROMPT_VERSION = "v2"
+EDITOR_SCHEMA_VERSION = "2"
 
 MAX_HEADLINE_CHARS = 140
 MAX_WHY_CHARS = 400

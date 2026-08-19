@@ -1,11 +1,11 @@
 # Editorial policy. Cadence and thresholds are configuration, not architecture.
 
 newsletter:
-  masthead: "AI & Digital Intelligence Weekly"
-  tagline: "Platform, model and monetization intelligence for the week"
+  masthead: "Leader Intelligence Semanal"
+  tagline: "YouTube, contenido infantil e inteligencia artificial, cada semana"
 
   # IANA timezone used for the date window, issue labels and published dates.
-  timezone: "UTC"
+  timezone: "America/Argentina/Buenos_Aires"
 
   # Default window: the 7 days up to execution time.
   #   rolling         -> [now - window_days, now)
@@ -15,7 +15,11 @@ newsletter:
 
   # Deterministic selection. The model never changes these.
   max_items: 8
-  min_score: 70
+  # Recalibrated for the v2 rubric, which asks what a story means for THIS
+  # company rather than for a general tech reader. Across 43 real articles the
+  # old rubric topped out at 88 and the new one at 68, so 70 published nothing.
+  # 62 fills the edition from the genuinely most relevant stories (ADR-0032).
+  min_score: 62
 
   # Collapse several articles covering the same event into one story, using the
   # analyzer event fingerprint (subject + action + object + date).
@@ -25,27 +29,32 @@ newsletter:
   max_per_source: 2
 
   # Caps that stop one topic monopolising the edition.
+  # Weighted towards what this company lives on: YouTube and children's
+  # content first, AI tooling second, general AI business last.
   section_limits:
-    youtube_platform: 2
-    youtube_monetization: 2
-    ai_models: 3
+    youtube_platform: 3
+    youtube_monetization: 3
+    kids_content: 3
     ai_video: 3
+    ai_models: 2
     ai_business: 2
 
   # Publication order of the sections.
   section_order:
-    - ai_models
     - youtube_platform
     - youtube_monetization
+    - kids_content
     - ai_video
+    - ai_models
     - ai_business
 
   section_titles:
-    ai_models: "AI Models & APIs"
-    ai_video: "AI Video & Creative AI"
-    ai_business: "AI in Business"
-    youtube_platform: "YouTube Platform"
-    youtube_monetization: "YouTube Monetization"
+    youtube_platform: "YouTube: la plataforma"
+    youtube_monetization: "YouTube: monetización"
+    kids_content: "Contenido infantil y familiar"
+    ai_video: "IA para video y creatividad"
+    ai_models: "Herramientas y modelos de IA"
+    ai_business: "IA en los negocios"
 
   # Valid classification, never published.
   excluded_categories:

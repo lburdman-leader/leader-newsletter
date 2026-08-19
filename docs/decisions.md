@@ -780,3 +780,60 @@ on a one-point wobble in a single rating. Enrichment improved the grounding, not
 verdict; anything sitting on the threshold is decided by model variance, and the assessment
 cache is what normally hides that variance — a volatile page whose text shifts between
 fetches defeats the cache and gets re-judged.
+
+## 2026-08-19 · ADR-0032 · The newspaper is written in Spanish, for Leader Entertainment
+
+**Decision.** The edition addresses one named audience — the people who plan, produce and
+publish Leader Entertainment's children's video, a Latin American company moving into AI
+production — and everything a reader sees is written in neutral Latin American Spanish.
+That covers the model's prose (`summary`, `why_it_matters`, `key_facts`, the executive
+brief, polished headlines), the templates and their chrome, the section titles and the
+dates. The rubric was rewritten to rate articles for that company rather than for a
+general enterprise reader, and `kids_content` joined the closed category taxonomy.
+
+**Reason.** Tone is not a rendering concern. Which stories are worth publishing, what
+counts as "actionable", and what a summary chooses to mention all follow from who is
+reading — so audience and language belong in the analyzer's rubric and the editor's brief,
+not in a post-processing translation pass. Translating after the fact would also have put a
+second model call between the assessment and the page, with nothing constraining it to keep
+the facts.
+
+**Prompts are code, so this is a version bump, not an edit.** `article_analyzer_v2.md` and
+`newsletter_editor_v2.md` are new files; `ASSESSMENT_SCHEMA_VERSION` and
+`EDITOR_SCHEMA_VERSION` moved to `"2"`. Cache identity is
+`content_hash:prompt_version:schema_version:model`, so every stored English assessment is
+now a miss and no v1 prose can leak into a v2 edition. That was the point of versioning the
+prompt; this is the first time it has been spent.
+
+**What stayed English.** The four event-fingerprint fields (`event_subject`,
+`event_action`, `event_object`, `event_date`). They are dedup keys compared across
+articles, never printed. Translating them would make two reports of the same event stop
+matching whenever the model chose different Spanish wording.
+
+**Dates without a locale.** `issue_date` formats Spanish months from a tuple in
+`renderer.py` rather than calling `setlocale`. A locale is process-global, mutable by any
+library in the process, and not guaranteed to be installed on the host — none of which is
+acceptable for output that has to be byte-identical across runs (AC9).
+
+**The threshold had to move, and the source list had to change first.** The v2 rubric is
+strictly harder: it asks what an article means for a kids-YouTube company, so an
+interesting model-infrastructure story that would have scored well for an enterprise reader
+now scores low on relevance and actionability. On the first v2 run nothing cleared 70 — the
+best rubric total was 61 where v1 had produced 78. Two things were wrong, and both were
+fixed rather than only the visible one:
+
+- *The sources were an AI-industry reading list.* 23 of 43 articles landed in
+  `ai_business`. Two feeds were added and verified live — Cartoon Brew (`kids_content`) and
+  Social Media Today (`youtube_platform`) — so the pipeline can actually see the beat the
+  rubric now rewards.
+- *The threshold was calibrated against a distribution that no longer exists.* `min_score`
+  moved 70 → 62, which is where the v2 score distribution separates.
+
+**Consequences.** The next run discovered 69 articles, 60 in window, and published 8
+between 62 and 74 across four sections, led by the U.S. Senate's investigation into Roblox
+over child safety — a story the old source list could not have surfaced and the old rubric
+would have ranked below a model-pricing announcement. `min_score` is now tied to the prompt
+version: a future `v3` rubric will need recalibrating the same way, and the number is
+meaningless without knowing which rubric produced it. The audit's AC5 check and the
+renderer tests assert Spanish strings, so an accidental revert to English chrome fails the
+gate rather than shipping.

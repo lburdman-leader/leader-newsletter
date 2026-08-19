@@ -28,7 +28,7 @@
   "sections": [
     {
       "category": "ai_models",
-      "title": "AI Models & APIs",
+      "title": "Herramientas y modelos de IA",
       "items": [
         {
           "article_id": "art4",
@@ -49,7 +49,7 @@
     },
     {
       "category": "ai_video",
-      "title": "AI Video & Creative AI",
+      "title": "IA para video y creatividad",
       "items": [
         {
           "article_id": "art2",
@@ -70,7 +70,7 @@
     },
     {
       "category": "youtube_monetization",
-      "title": "YouTube Monetization",
+      "title": "YouTube: monetización",
       "items": [
         {
           "article_id": "art3",

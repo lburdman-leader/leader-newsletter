@@ -205,7 +205,7 @@ src/newsletter/intelligence/
   schemas.py     AssessmentPayload (wire) + bound enforcement into ArticleAssessment
   client.py      StructuredClient: one request, one schema, bounded retries
   analyzer.py    ArticleAnalyzer: prompt + cache + per-article failure isolation
-  prompts/article_analyzer_v1.md
+  prompts/article_analyzer_v1.md, article_analyzer_v2.md   (v2 is live; see ADR-0032)
 ```
 
 **Two models for one concept** (ADR-0017). Strict Structured Outputs rejects `minimum`,
@@ -285,7 +285,7 @@ duplicate. Switchable via `collapse_events`.
 ```text
 src/newsletter/intelligence/
   editor.py      EditorialPayload wire schema, build_edition (pure), NewsletterEditor
-  prompts/newsletter_editor_v1.md
+  prompts/newsletter_editor_v1.md, newsletter_editor_v2.md  (v2 is live)
 src/newsletter/rendering/
   renderer.py    link validation, Jinja environment, artifact writing
   templates/newsletter.html.j2   the newspaper
