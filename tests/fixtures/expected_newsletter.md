@@ -1,6 +1,6 @@
 # AI & Digital Intelligence Weekly
 
-**Issue 2026-W34** · 11 Aug 2026 – 18 Aug 2026 · 4 stories
+**Issue 2026-W34** · 11 Aug 2026 – 17 Aug 2026 · 4 stories
 
 ---
 

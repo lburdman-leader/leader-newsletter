@@ -297,7 +297,10 @@ def test_the_deterministic_brief_is_used_when_there_is_no_editor(edition) -> Non
 def test_html_has_a_masthead_and_issue_metadata(html: str) -> None:
     assert "AI &amp; Digital Intelligence Weekly" in html
     assert "Issue 2026-W34" in html
-    assert "11 Aug 2026" in html and "18 Aug 2026" in html
+    # The window is half-open: it ends at midnight on the 18th and therefore
+    # covers the 17th. Printing "18 Aug" would claim a day it does not include.
+    assert "11 Aug 2026" in html and "17 Aug 2026" in html
+    assert "18 Aug 2026" not in html.split("</header>")[0]
 
 
 def test_html_has_an_executive_brief_and_a_lead_story(html: str) -> None:

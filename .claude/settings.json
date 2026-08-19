@@ -2,7 +2,6 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "defaultMode": "acceptEdits",
-
     "allow": [
       "Read",
       "Grep",
@@ -15,7 +14,6 @@
       "Agent",
       "WebFetch",
       "WebSearch",
-
       "Bash(pwd)",
       "Bash(ls:*)",
       "Bash(cat:*)",
@@ -35,7 +33,6 @@
       "Bash(echo:*)",
       "Bash(python --version)",
       "Bash(python -c:*)",
-
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -44,7 +41,6 @@
       "Bash(git rev-parse:*)",
       "Bash(git ls-files:*)",
       "Bash(git config --get:*)",
-
       "Bash(python -m pytest:*)",
       "Bash(pytest:*)",
       "Bash(ruff check:*)",
@@ -55,10 +51,8 @@
       "Bash(python -m newsletter sources:*)",
       "Bash(python -m newsletter run --dry-run:*)"
     ],
-
     "ask": [
       "Skill",
-
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
@@ -74,13 +68,11 @@
       "Bash(git tag:*)",
       "Bash(git remote:*)",
       "Bash(git init:*)",
-
       "Bash(gh pr:*)",
       "Bash(gh repo:*)",
       "Bash(gh workflow:*)",
       "Bash(gh release:*)",
       "Bash(gh secret:*)",
-
       "Bash(pip install:*)",
       "Bash(pip uninstall:*)",
       "Bash(python -m pip install:*)",
@@ -90,23 +82,27 @@
       "Bash(uv pip install:*)",
       "Bash(poetry add:*)",
       "Bash(poetry remove:*)",
-
       "Bash(rm:*)",
       "Bash(rmdir:*)",
       "Bash(del:*)",
       "Bash(curl:*)",
       "Bash(wget:*)"
     ],
-
     "deny": [
       "Read(./.env)",
-      "Read(./.env.*)",
+      "Read(./.env.local)",
+      "Read(./.env.development)",
+      "Read(./.env.production)",
+      "Read(./.env.staging)",
       "Read(./**/.env)",
-      "Read(./**/.env.*)",
+      "Read(./**/.env.local)",
       "Edit(./.env)",
-      "Edit(./.env.*)",
+      "Edit(./.env.local)",
+      "Edit(./.env.development)",
+      "Edit(./.env.production)",
+      "Edit(./.env.staging)",
       "Edit(./**/.env)",
-      "Edit(./**/.env.*)",
+      "Edit(./**/.env.local)",
       "Read(./**/*.pem)",
       "Read(./**/*.key)",
       "Read(./secrets/**)",
@@ -117,7 +113,6 @@
       "Edit(//~/.aws/**)",
       "Read(//~/.config/gcloud/**)",
       "Edit(//~/.config/gcloud/**)",
-
       "Bash(curl * | sh)",
       "Bash(curl * | bash)",
       "Bash(rm -rf /*)",
@@ -125,7 +120,6 @@
       "Bash(git push -f:*)"
     ]
   },
-
   "hooks": {
     "PreToolUse": [
       {

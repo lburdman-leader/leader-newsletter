@@ -20,7 +20,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ edition.masthead }} — {{ edition.issue_label }}</title>
-<meta name="description" content="Weekly enterprise intelligence briefing for {{ edition.period_start | issue_date }} to {{ edition.period_end | issue_date }}.">
+<meta name="description" content="Weekly enterprise intelligence briefing for {{ edition.period_start | issue_date }} to {{ edition.period_end | issue_date_end }}.">
 <style>
   :root {
     --accent: #1a44d6;
@@ -315,7 +315,7 @@
 
   <header>
     <div class="masthead-top">
-      <span>{{ edition.period_start | issue_date }} &ndash; {{ edition.period_end | issue_date }}</span>
+      <span>{{ edition.period_start | issue_date }} &ndash; {{ edition.period_end | issue_date_end }}</span>
       <span>Weekly briefing</span>
     </div>
 

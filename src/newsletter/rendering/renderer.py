@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Collection, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +79,16 @@ def issue_datetime(value: datetime) -> str:
     return f"{value.day} {value:%b %Y at %H:%M %Z}".strip()
 
 
+def issue_date_end(value: datetime) -> str:
+    """The last day a window actually covers.
+
+    Windows are half-open, so ``period_end`` is midnight on the day *after* the
+    edition. Printing it verbatim claims a day the edition does not include.
+    This is the same instant ``DateWindow.issue_label`` uses to pick the week.
+    """
+    return issue_date(value - timedelta(microseconds=1))
+
+
 def markdown_escape(value: str) -> str:
     return str(value).translate(_MARKDOWN_ESCAPES)
 
@@ -93,6 +103,7 @@ def build_environment() -> Environment:
         keep_trailing_newline=True,
     )
     env.filters["issue_date"] = issue_date
+    env.filters["issue_date_end"] = issue_date_end
     env.filters["issue_datetime"] = issue_datetime
     env.filters["md"] = markdown_escape
     return env
