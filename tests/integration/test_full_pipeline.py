@@ -293,18 +293,16 @@ class _EchoEditor(NewsletterEditor):
 # --------------------------------------------------------------------------- #
 
 
-def test_the_full_pipeline_produces_an_edition(tmp_path: Path, http: FakeHttpClient) -> None:
+def test_the_full_pipeline_produces_a_polished_edition_in_five_artifacts(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """AC11: the happy path, from three fake sources to files on disk."""
     result = run_fixture_pipeline(tmp_path, http)
+    directory = tmp_path / "output" / "2026-W34"
 
     assert result.succeeded
     assert isinstance(result.edition, NewsletterEdition)
     assert result.manifest.newsletter_generated is True
-
-
-def test_all_five_artifacts_are_written(tmp_path: Path, http: FakeHttpClient) -> None:
-    """AC11."""
-    result = run_fixture_pipeline(tmp_path, http)
-    directory = tmp_path / "output" / "2026-W34"
 
     for filename in (
         "newsletter.html",
@@ -316,6 +314,9 @@ def test_all_five_artifacts_are_written(tmp_path: Path, http: FakeHttpClient) ->
         assert (directory / filename).is_file(), filename
         assert (directory / filename).stat().st_size > 0
     assert set(result.outputs) == {"html", "markdown", "json", "selected_articles", "run_manifest"}
+
+    # The editor was consulted and its polish reached the page.
+    assert result.edition.lead_story.headline.startswith("Edited headline for ")
 
 
 def test_the_broken_source_does_not_stop_the_others(tmp_path: Path, http: FakeHttpClient) -> None:
@@ -412,11 +413,6 @@ def test_the_manifest_records_the_whole_run(tmp_path: Path, http: FakeHttpClient
     assert payload["errors"], "the gamma failure must be visible in the manifest"
 
 
-def test_editorial_polish_reaches_the_edition(tmp_path: Path, http: FakeHttpClient) -> None:
-    result = run_fixture_pipeline(tmp_path, http)
-    assert result.edition.lead_story.headline.startswith("Edited headline for ")
-
-
 def test_a_failing_editor_costs_polish_not_the_edition(
     tmp_path: Path, http: FakeHttpClient
 ) -> None:
@@ -477,18 +473,15 @@ def run_with_corrupted_analyst(tmp_path: Path, http: FakeHttpClient, **config_ov
 def test_a_corrupted_brand_name_drops_the_story_but_not_the_edition(
     tmp_path: Path, http: FakeHttpClient
 ) -> None:
+    """And nothing is ever dropped silently (PRD section 34): the manifest names
+    the token, the story and the stage that refused it."""
     result = run_with_corrupted_analyst(tmp_path, http)
+    published = [item.source_url for item in result.edition.all_items()]
 
     assert result.succeeded
-    assert ALPHA_2 not in [item.source_url for item in result.edition.all_items()]
-    assert ALPHA_1 in [item.source_url for item in result.edition.all_items()]
+    assert ALPHA_2 not in published
+    assert ALPHA_1 in published
 
-
-def test_the_dropped_story_is_recorded_in_the_run_manifest(
-    tmp_path: Path, http: FakeHttpClient
-) -> None:
-    """Nothing is ever dropped silently (PRD section 34)."""
-    result = run_with_corrupted_analyst(tmp_path, http)
     recorded = [
         error for error in result.manifest.errors if error.exception_class == "EntityFidelityError"
     ]
@@ -636,10 +629,11 @@ def test_a_story_an_earlier_edition_printed_is_not_reprinted(
     assert "not reprinted: already published in 2026-W34" in console
 
 
-def test_re_running_the_same_week_reproduces_its_edition(
+def test_re_running_the_same_week_reproduces_its_edition_from_cache(
     tmp_path: Path, http: FakeHttpClient
 ) -> None:
-    """The guard must not suppress an issue against itself (AC9)."""
+    """The guard must not suppress an issue against itself (AC9), and the second
+    run answers every article from the assessment cache rather than the model."""
     with Database(tmp_path / "news.sqlite") as database:
         first = run_fixture_pipeline(tmp_path / "one", http, database=database)
         second = run_fixture_pipeline(tmp_path / "two", http, database=database)
@@ -647,6 +641,9 @@ def test_re_running_the_same_week_reproduces_its_edition(
     assert [item.article_id for item in first.edition.all_items()] == [
         item.article_id for item in second.edition.all_items()
     ]
+    assert first.manifest.llm_calls > 0
+    assert second.manifest.llm_calls == 0
+    assert second.manifest.llm_cache_hits == first.manifest.llm_calls
 
 
 def test_the_reprint_guard_can_be_switched_off(tmp_path: Path, http: FakeHttpClient) -> None:
@@ -662,16 +659,6 @@ def test_the_reprint_guard_can_be_switched_off(tmp_path: Path, http: FakeHttpCli
 
     printed = {item.source_url for item in first.edition.all_items()}
     assert printed & {item.source_url for item in second.edition.all_items()}
-
-
-def test_the_second_run_reuses_cached_assessments(tmp_path: Path, http: FakeHttpClient) -> None:
-    with Database(tmp_path / "news.sqlite") as database:
-        first = run_fixture_pipeline(tmp_path / "one", http, database=database)
-        second = run_fixture_pipeline(tmp_path / "two", http, database=database)
-
-    assert first.manifest.llm_calls > 0
-    assert second.manifest.llm_calls == 0
-    assert second.manifest.llm_cache_hits == first.manifest.llm_calls
 
 
 # --------------------------------------------------------------------------- #

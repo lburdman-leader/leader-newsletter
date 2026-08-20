@@ -97,17 +97,15 @@ def make_ranked(
 # --------------------------------------------------------------------------- #
 
 
-def test_articles_below_the_threshold_are_excluded() -> None:
-    result = select([make_ranked("high", 88), make_ranked("low", 69)], SETTINGS)
+def test_the_threshold_is_inclusive_and_excludes_the_point_below() -> None:
+    """``min_score`` is 70: 70 prints, 69 is rejected and says why."""
+    result = select(
+        [make_ranked("high", 88), make_ranked("exactly", 70), make_ranked("low", 69)], SETTINGS
+    )
 
-    assert [r.article.article_id for r in result.selected] == ["high"]
+    assert [r.article.article_id for r in result.selected] == ["high", "exactly"]
     assert result.rejected[0].reason == REASON_BELOW_THRESHOLD
     assert result.rejected[0].ranked.article.article_id == "low"
-
-
-def test_the_threshold_is_inclusive() -> None:
-    result = select([make_ranked("exactly", 70)], SETTINGS)
-    assert [r.article.article_id for r in result.selected] == ["exactly"]
 
 
 def test_an_edition_can_legitimately_be_empty() -> None:
@@ -130,15 +128,12 @@ def test_above_threshold_is_counted_separately_from_selected() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_selection_is_ordered_by_score() -> None:
+def test_selection_is_ordered_by_score_and_the_lead_is_the_best_of_it() -> None:
     ranked = [make_ranked("mid", 80), make_ranked("top", 95), make_ranked("bottom", 72)]
     result = select(ranked, SETTINGS)
+
     assert [r.article.article_id for r in result.selected] == ["top", "mid", "bottom"]
-
-
-def test_the_lead_is_the_highest_scoring_story() -> None:
-    result = select([make_ranked("second", 80), make_ranked("first", 99)], SETTINGS)
-    assert result.lead.article.article_id == "first"
+    assert result.lead.article.article_id == "top"
 
 
 def test_ties_are_broken_by_publication_then_id() -> None:
@@ -232,17 +227,6 @@ def test_a_high_scoring_excluded_article_is_not_counted_above_threshold() -> Non
 EVENT = ("Example Labs", "released", "Reasoning model", "2026-08-17")
 
 
-def test_two_articles_about_one_event_collapse_to_the_better_one() -> None:
-    ranked = [
-        make_ranked("weaker", 80, event=EVENT),
-        make_ranked("stronger", 92, event=EVENT),
-    ]
-    result = select(ranked, SETTINGS)
-
-    assert [r.article.article_id for r in result.selected] == ["stronger"]
-    assert result.rejected[0].reason == REASON_DUPLICATE_EVENT
-
-
 def test_different_events_are_kept_apart() -> None:
     other = ("Other Corp", "acquired", "A startup", "2026-08-16")
     result = select(
@@ -276,14 +260,15 @@ def test_one_launch_reported_three_ways_runs_as_a_single_story() -> None:
     """Collapse runs before the category caps, which would otherwise spread it.
 
     Three copies filed under three categories used to pass three different caps
-    and print three times.
+    and print three times. Fed weakest-first, so the surviving copy is the best
+    of the three rather than whichever one arrived first.
     """
     categories = [TopicCategory.AI_MODELS, TopicCategory.AI_VIDEO, TopicCategory.AI_BUSINESS]
     ranked = [
         make_ranked(f"teens{index}", 95 - index, category=category, event=event)
         for index, (event, category) in enumerate(zip(CHATGPT_FOR_TEENS, categories, strict=True))
     ]
-    result = select(ranked, SETTINGS)
+    result = select(list(reversed(ranked)), SETTINGS)
 
     assert [r.article.article_id for r in result.selected] == ["teens0"]
     assert result.reasons() == {REASON_DUPLICATE_EVENT: 2}
@@ -304,6 +289,8 @@ def test_a_second_event_from_the_same_company_is_not_collapsed_into_the_first() 
 
 
 def test_a_story_an_earlier_edition_printed_is_not_reprinted() -> None:
+    """And it says which issue carried it: a suppression that cannot explain
+    itself is a silent failure."""
     published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
     result = select(
         [make_ranked("reprint", 95), make_ranked("fresh", 80)], SETTINGS, published=published
@@ -311,13 +298,6 @@ def test_a_story_an_earlier_edition_printed_is_not_reprinted() -> None:
 
     assert [r.article.article_id for r in result.selected] == ["fresh"]
     assert result.reasons() == {REASON_ALREADY_PUBLISHED: 1}
-
-
-def test_a_suppressed_story_says_which_issue_already_carried_it() -> None:
-    """A suppression that cannot explain itself is a silent failure."""
-    published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
-    result = select([make_ranked("reprint", 95)], SETTINGS, published=published)
-
     assert result.rejections_for(REASON_ALREADY_PUBLISHED)[0].detail == (
         "already published in 2026-W33"
     )
@@ -390,6 +370,8 @@ def test_no_single_company_can_take_more_than_its_share() -> None:
 
     assert [r.article.article_id for r in result.selected] == ["thing0", "thing1"]
     assert result.reasons() == {REASON_SUBJECT_LIMIT: 2}
+    # Nothing vanishes: every candidate is either selected or rejected with a reason.
+    assert len(result.selected) + len(result.rejected) == len(ranked)
 
 
 def test_a_capped_subject_leaves_room_for_another_company() -> None:
@@ -399,13 +381,6 @@ def test_a_capped_subject_leaves_room_for_another_company() -> None:
     selected = select(ranked, SUBJECT_CAPPED).selected
 
     assert [r.assessment.event_subject for r in selected] == ["OpenAI", "OpenAI", "Google"]
-
-
-def test_the_subject_cap_names_the_subject_that_filled_up() -> None:
-    ranked = [make_about("OpenAI", f"thing{i}", 95 - i) for i in range(3)]
-    rejected = select(ranked, SUBJECT_CAPPED).rejections_for(REASON_SUBJECT_LIMIT)
-
-    assert rejected[0].detail == "2 stories already cover 'openai'"
 
 
 def test_an_article_whose_analyst_named_no_subject_is_never_capped() -> None:
@@ -432,18 +407,6 @@ def test_the_subject_cap_can_be_removed() -> None:
     )
     ranked = [make_about("OpenAI", f"thing{i}", 95 - i) for i in range(4)]
     assert len(select(ranked, settings).selected) == 4
-
-
-def test_the_subject_cap_defaults_to_two() -> None:
-    assert NewsletterSettings().max_per_subject == 2
-
-
-def test_the_subject_cap_is_reported_like_every_other_rejection() -> None:
-    ranked = [make_about("OpenAI", f"thing{i}", 95 - i) for i in range(4)]
-    result = select(ranked, SUBJECT_CAPPED)
-
-    assert len(result.selected) + len(result.rejected) == len(ranked)
-    assert all(item.reason == REASON_SUBJECT_LIMIT for item in result.rejected)
 
 
 # --------------------------------------------------------------------------- #
@@ -553,9 +516,12 @@ def test_one_source_cannot_fill_the_edition() -> None:
 
     assert len(result.selected) == 2
     assert result.reasons() == {REASON_SOURCE_LIMIT: 3}
+    # Nothing vanishes: every candidate is either selected or rejected with a reason.
+    assert len(result.selected) + len(result.rejected) == len(ranked)
 
 
-def test_the_cap_keeps_the_best_from_each_source() -> None:
+def test_the_cap_keeps_the_best_of_each_source_and_leaves_room_for_others() -> None:
+    """The point of the cap: room is left for other voices, at their own rank."""
     ranked = [
         make_from("loudest", "top", 95),
         make_from("loudest", "second", 90),
@@ -567,16 +533,6 @@ def test_the_cap_keeps_the_best_from_each_source() -> None:
     assert [r.article.article_id for r in result.selected] == ["top", "second", "other"]
 
 
-def test_a_capped_source_does_not_block_a_lower_scoring_one() -> None:
-    """The point of the cap: room is left for other voices."""
-    ranked = [make_from("loudest", f"a{i}", 95 - i) for i in range(4)]
-    ranked.append(make_from("quieter", "quiet", 71))
-
-    selected = select(ranked, CAPPED).selected
-
-    assert {r.article.source_id for r in selected} == {"loudest", "quieter"}
-
-
 def test_no_cap_by_default() -> None:
     """Existing configurations keep working; the cap is opt-in."""
     ranked = [make_from("loudest", f"a{i}", 95 - i) for i in range(4)]
@@ -586,21 +542,14 @@ def test_no_cap_by_default() -> None:
     assert len(select(ranked, settings).selected) == 4
 
 
-def test_the_cap_is_reported_like_every_other_rejection() -> None:
-    ranked = [make_from("loudest", f"a{i}", 95 - i) for i in range(4)]
-    result = select(ranked, CAPPED)
-
-    assert len(result.selected) + len(result.rejected) == len(ranked)
-    assert all(item.reason == REASON_SOURCE_LIMIT for item in result.rejected)
-
-
 # --------------------------------------------------------------------------- #
 # the run manifest — the console is not an audit surface
 # --------------------------------------------------------------------------- #
 
 
 def test_a_suppressed_reprint_reaches_the_run_manifest() -> None:
-    """Rule 7: a story that vanishes must be explainable from the artifact."""
+    """Rule 7: a story that vanishes must be explainable from the artifact --
+    and an omission is the system working, not a broken run."""
     manifest = RunManifest(run_id="r1", started_at=NOW)
     published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
 
@@ -611,27 +560,19 @@ def test_a_suppressed_reprint_reaches_the_run_manifest() -> None:
     ]
     assert manifest.withheld[0].title == "Story reprint"
     assert manifest.withheld[0].url == "https://wire.example/reprint"
+    assert not manifest.failed
 
 
-def test_a_capped_subject_reaches_the_run_manifest_with_its_detail() -> None:
+def test_a_capped_subject_reaches_the_run_manifest_naming_the_subject() -> None:
+    """The same detail an operator sees on the rejection reaches the artifact."""
     manifest = RunManifest(run_id="r1", started_at=NOW)
     ranked = [make_about("Northwind", f"n{i}", 95 - i) for i in range(3)]
 
-    select(ranked, SUBJECT_CAPPED, manifest=manifest)
+    result = select(ranked, SUBJECT_CAPPED, manifest=manifest)
 
     assert [(w.article_id, w.reason) for w in manifest.withheld] == [("n2", REASON_SUBJECT_LIMIT)]
     assert manifest.withheld[0].detail == "2 stories already cover 'northwind'"
-
-
-def test_an_omission_is_not_a_failure() -> None:
-    """A suppressed reprint is the system working, not a broken run."""
-    manifest = RunManifest(run_id="r1", started_at=NOW)
-    published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
-
-    select([make_ranked("reprint", 95)], SETTINGS, manifest=manifest, published=published)
-
-    assert manifest.withheld
-    assert not manifest.failed
+    assert result.rejections_for(REASON_SUBJECT_LIMIT)[0].detail == manifest.withheld[0].detail
 
 
 def test_policy_arithmetic_stays_out_of_the_manifest() -> None:
@@ -642,12 +583,6 @@ def test_policy_arithmetic_stays_out_of_the_manifest() -> None:
     select(ranked, SETTINGS, manifest=manifest)
 
     assert manifest.withheld == []
-
-
-def test_the_manifest_survives_a_run_with_no_manifest() -> None:
-    """``select`` stays usable without one; the tests above rely on that too."""
-    published = PublishedKeys(by_article_id={"reprint": "2026-W33"})
-    assert select([make_ranked("reprint", 95)], SETTINGS, published=published).is_empty
 
 
 # --------------------------------------------------------------------------- #
@@ -711,26 +646,22 @@ ONE_LAUNCH = (
 
 
 def test_three_reports_of_one_event_are_selected_as_one_story() -> None:
-    """The owner's complaint: three of eight stories on one launch."""
-    result = select([make_reported(*report) for report in ONE_LAUNCH], SIMILARITY)
+    """The owner's complaint: three of eight stories on one launch.
+
+    A fold is a story the reader never sees, so the same event has to be
+    explainable from the rejection *and* from the run manifest.
+    """
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    result = select(
+        [make_reported(*report) for report in ONE_LAUNCH], SIMILARITY, manifest=manifest
+    )
 
     assert [r.article.article_id for r in result.selected] == ["vendor-post"]
     assert result.reasons() == {REASON_SIMILAR_EVENT: 2}
-
-
-def test_a_folded_story_names_the_story_it_was_folded_into() -> None:
-    result = select([make_reported(*report) for report in ONE_LAUNCH], SIMILARITY)
-
     assert all(
         item.detail == "same event as 'Introducing ChatGPT for Teens'"
         for item in result.rejections_for(REASON_SIMILAR_EVENT)
     )
-
-
-def test_a_folded_story_reaches_the_run_manifest() -> None:
-    manifest = RunManifest(run_id="r1", started_at=NOW)
-    select([make_reported(*report) for report in ONE_LAUNCH], SIMILARITY, manifest=manifest)
-
     assert [w.article_id for w in manifest.withheld] == ["outlet-report", "rival-report"]
     assert all(w.reason == REASON_SIMILAR_EVENT for w in manifest.withheld)
 

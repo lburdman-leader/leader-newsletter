@@ -100,8 +100,16 @@ def adapter(anthropic_index: str, anthropic_article: str) -> ScraplingAdapter:
 # --------------------------------------------------------------------------- #
 
 
-def test_link_selector_finds_every_news_item(adapter: ScraplingAdapter, window) -> None:
-    """``a[href^="/news/"]`` resolves the index to absolute article URLs."""
+def test_discovery_yields_every_news_item_titled_and_undated(
+    adapter: ScraplingAdapter, window
+) -> None:
+    """``a[href^="/news/"]`` resolves the index to absolute, titled candidates.
+
+    They arrive undated on purpose. The index payload holds one ``publishedOn``
+    per listed item with no privileged first position, so a first-match read
+    there would stamp every item with the first item's date. Discovery passes
+    candidates through undated and lets normalization date them one by one.
+    """
     found = adapter.discover(window)
 
     assert [article.url for article in found] == [
@@ -113,34 +121,16 @@ def test_link_selector_finds_every_news_item(adapter: ScraplingAdapter, window) 
     ]
     assert all(isinstance(article, DiscoveredArticle) for article in found)
 
-
-def test_titles_are_recoverable_from_the_anchor(adapter: ScraplingAdapter, window) -> None:
-    """Each anchor carries its headline, alongside the date and subject tag."""
-    found = adapter.discover(window)
     titles = [article.title_hint or "" for article in found]
-
     assert all(titles)
     assert "How Claude" in titles[1] and "text watermark works" in titles[1]
 
-
-@pytest.mark.parametrize("rendered", ["Aug 14, 2026", "Jul 24, 2026", "Jul 30, 2026"])
-def test_rendered_date_text_is_still_not_parseable(rendered: str) -> None:
-    """The visible ``Mon D, YYYY`` text remains unusable, which is why the payload matters."""
-    assert parse_datetime(rendered) is None
-
-
-def test_discovery_still_yields_no_date_hint(adapter: ScraplingAdapter, window) -> None:
-    """Index items arrive undated on purpose.
-
-    The index payload holds one ``publishedOn`` per listed item with no
-    privileged first position, so a first-match read there would stamp every item
-    with the first item's date. Discovery therefore passes candidates through
-    undated and lets normalization establish the real date per article.
-    """
-    found = adapter.discover(window)
-
-    assert found, "discovery must find items, otherwise this proves nothing"
     assert all(article.published_at_hint is None for article in found)
+
+
+def test_rendered_date_text_is_still_not_parseable() -> None:
+    """The visible ``Mon D, YYYY`` text remains unusable, which is why the payload matters."""
+    assert parse_datetime("Aug 14, 2026") is None
 
 
 # --------------------------------------------------------------------------- #
@@ -149,18 +139,27 @@ def test_discovery_still_yields_no_date_hint(adapter: ScraplingAdapter, window) 
 
 
 def test_embedded_payload_yields_the_articles_own_date(anthropic_article: str) -> None:
-    """The first ``publishedOn`` is the article's own, not a related post's."""
-    found = extract_embedded_date(Selector(anthropic_article), "publishedOn")
+    """The first ``publishedOn`` is the article's own, and it means publication.
 
-    assert found == WATERMARK_PUBLISHED_AT
+    Two neighbouring dates in the same payload are traps a sloppy read falls
+    into: a ``relatedPosts`` teaser further down, and an ``_createdAt`` sitting
+    beside the right key on a different day. Both are named explicitly so a
+    failure says which one was picked up.
 
-
-def test_extraction_ignores_the_related_posts_further_down(anthropic_article: str) -> None:
-    """The payload's later dates are teasers and must never be mistaken for this one."""
+    Agreeing with the date printed beside the headline is what shows the key
+    means "published" rather than merely being internally consistent. Verified
+    by hand on 7 live articles from 2026-06-30 to 2026-08-14, pinned here on the
+    captured one.
+    """
     found = extract_embedded_date(Selector(anthropic_article), "publishedOn")
 
     assert found != datetime(2026, 8, 7, 1, 0, tzinfo=UTC), "picked up a relatedPosts date"
     assert found != datetime(2026, 8, 13, 23, 49, 28, tzinfo=UTC), "picked up _createdAt"
+    assert found == WATERMARK_PUBLISHED_AT
+
+    rendered = datetime.strptime("Aug 14, 2026", "%b %d, %Y").replace(tzinfo=UTC).date()
+    assert ">Aug 14, 2026<" in anthropic_article, "the visible date moved; recapture the fixture"
+    assert found.date() == rendered
 
 
 def test_normalization_dates_the_article_from_the_payload(anthropic_article: str, window) -> None:
@@ -170,21 +169,6 @@ def test_normalization_dates_the_article_from_the_payload(anthropic_article: str
     assert article.published_at == WATERMARK_PUBLISHED_AT
     assert window.contains(article.published_at)
     assert article.canonical_url == WATERMARK_URL
-
-
-def test_extracted_date_matches_the_human_visible_one(anthropic_article: str) -> None:
-    """The payload agrees with the date printed beside the headline.
-
-    Worth asserting separately: the payload could be internally consistent and
-    still not mean "publication date". Agreeing with what a reader sees is the
-    evidence that it does. Verified by hand on 7 live articles spanning
-    2026-06-30 to 2026-08-14; pinned here on the captured one.
-    """
-    rendered = datetime.strptime("Aug 14, 2026", "%b %d, %Y").replace(tzinfo=UTC).date()
-    found = extract_embedded_date(Selector(anthropic_article), "publishedOn")
-
-    assert ">Aug 14, 2026<" in anthropic_article, "the visible date moved; recapture the fixture"
-    assert found is not None and found.date() == rendered
 
 
 # --------------------------------------------------------------------------- #

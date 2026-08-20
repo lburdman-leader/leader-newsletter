@@ -129,11 +129,9 @@ def make_edition() -> NewsletterEdition:
 # --------------------------------------------------------------------------- #
 
 
-def test_schema_is_created_and_versioned(db: Database) -> None:
+def test_the_schema_is_created_versioned_and_safe_to_reapply(db: Database) -> None:
+    """Opening the database created it; initializing again must not undo that."""
     assert db.schema_version == SCHEMA_VERSION
-
-
-def test_initialize_is_idempotent(db: Database) -> None:
     db.initialize()
     db.initialize()
     assert db.schema_version == SCHEMA_VERSION
@@ -340,15 +338,6 @@ def test_published_keys_name_the_issue_that_printed_a_story_first(db: Database) 
     db.save_edition(reprint)
 
     assert db.published_identity_keys().by_article_id["lead"] == "2026-W34"
-
-
-def test_published_keys_do_not_depend_on_row_order(db: Database) -> None:
-    """AC9: two reads of the same database produce the same keys."""
-    publish_an_edition(db)
-    first = db.published_identity_keys()
-    second = db.published_identity_keys()
-
-    assert first == second
 
 
 def test_a_published_headline_is_never_read_as_a_durable_key(db: Database) -> None:

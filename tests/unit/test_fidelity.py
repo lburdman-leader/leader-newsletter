@@ -8,6 +8,8 @@ unsupported.
 
 from __future__ import annotations
 
+import pytest
+
 from newsletter.intelligence.editor import build_edition
 from newsletter.intelligence.fidelity import (
     EntityViolation,
@@ -72,24 +74,30 @@ def test_a_repeated_token_is_reported_once() -> None:
 
 
 def test_a_corrupted_brand_is_not_supported_by_the_source() -> None:
-    """The defect this module exists for: no fabricated fact, a mangled name."""
-    violations = find_unsupported_entities({"summary": "UTube cambió los pagos."}, SOURCE)
+    """The defect this module exists for: no fabricated fact, a mangled name.
 
-    assert [(v.field, v.token) for v in violations] == [("summary", "UTube")]
+    The violation names the field, the token and the story, because an operator
+    reading the manifest has nothing else to go on.
+    """
+    violations = find_unsupported_entities(
+        {"summary": "UTube cambió los pagos."}, SOURCE, article_id="art9"
+    )
+
+    assert violations == [EntityViolation(article_id="art9", field="summary", token="UTube")]
 
 
 def test_a_brand_the_source_actually_names_is_clean() -> None:
+    """Matching is case-insensitive on purpose: a false negative costs less than
+    a dropped story."""
     assert find_unsupported_entities({"summary": "YouTube cambió los pagos."}, SOURCE) == []
-
-
-def test_the_source_is_matched_case_insensitively() -> None:
-    """Deliberately permissive: a false negative costs less than a dropped story."""
     assert find_unsupported_entities({"summary": "Habló OpenAi sobre GPT-4."}, SOURCE) == []
 
 
 def test_a_spanish_acronym_the_english_source_never_uses_is_still_clean() -> None:
+    """IA is AI and EE.UU. is the US: no English source will ever contain them."""
     text = "La IA generativa y los CEO de EE.UU. discuten la API."
     assert find_unsupported_entities({"summary": text}, SOURCE) == []
+    assert find_unsupported_entities({"summary": text}, "YouTube changed its rules.") == []
 
 
 def test_a_model_number_the_source_never_mentions_is_a_violation() -> None:
@@ -135,47 +143,35 @@ def test_violations_come_back_in_a_stable_order() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_a_hyphen_the_source_does_not_write_is_not_a_violation() -> None:
-    """Scraped English drops the dash a model almost always prints."""
-    rows = [
-        ("OpenAI released GPT4 today.", "OpenAI presentó GPT-4 a las empresas."),
-        ("Nvidia H100 shipments rose.", "Los chips H-100 de Nvidia."),
-    ]
-    for source, prose in rows:
-        assert find_unsupported_entities({"summary": prose}, source) == [], prose
+#: Every way faithful Spanish prose can look different from the English source
+#: it came from. Each row is one wrinkle in the matcher; drop any of them and a
+#: correct story is deleted from the edition for a punctuation mismatch.
+FAITHFUL_PROSE = {
+    "the source drops the dash the model prints": (
+        "OpenAI released GPT4 today.",
+        "OpenAI presentó GPT-4 a las empresas.",
+    ),
+    "the same, on a chip name": ("Nvidia H100 shipments rose.", "Los chips H-100 de Nvidia."),
+    "the source writes as a space what the edition hyphenates": (
+        "YouTube Shorts grew fast.",
+        "YouTube-Shorts creció rápido.",
+    ),
+    "Spanish morphology runs longer than the source name": (
+        "YouTube changed its rules.",
+        "Los YouTubers ganan menos ahora.",
+    ),
+    "a three-letter source stem supports a longer model number": (
+        "GPT is here.",
+        "Llegó GPT-4.",
+    ),
+}
 
 
-def test_a_hyphen_the_source_writes_as_a_space_is_not_a_violation() -> None:
-    """`YouTube Shorts` in the article, `YouTube-Shorts` in the edition."""
-    source = "YouTube Shorts grew fast."
-
-    assert find_unsupported_entities({"summary": "YouTube-Shorts creció rápido."}, source) == []
-
-
-def test_spanish_morphology_longer_than_the_source_is_not_a_violation() -> None:
-    """`YouTubers` is ordinary Spanish tech vocabulary; the source says `YouTube`."""
-    source = "YouTube changed its rules."
-
-    assert find_unsupported_entities({"summary": "Los YouTubers ganan menos ahora."}, source) == []
-
-
-def test_the_corruption_survives_all_of_that_and_is_still_caught() -> None:
-    """The whole reason the module exists: `utube` is a substring of `youtube`."""
-    source = "YouTube already used this for Shorts."
-    violations = find_unsupported_entities(
-        {"summary": "Esta política, que UTube aplicó antes."}, source
-    )
-
-    assert [v.token for v in violations] == ["UTube"]
-
-
-def test_spanish_acronyms_stay_clean_against_an_unrelated_source() -> None:
-    source = "YouTube changed its rules."
-
-    assert (
-        find_unsupported_entities({"summary": "La IA generativa y el CEO según la API."}, source)
-        == []
-    )
+@pytest.mark.parametrize(
+    ("source", "prose"), list(FAITHFUL_PROSE.values()), ids=list(FAITHFUL_PROSE)
+)
+def test_punctuation_and_morphology_never_delete_a_faithful_story(source: str, prose: str) -> None:
+    assert find_unsupported_entities({"summary": prose}, source) == []
 
 
 def test_merging_adjacent_words_cannot_manufacture_a_corrupted_brand() -> None:
@@ -184,10 +180,6 @@ def test_merging_adjacent_words_cannot_manufacture_a_corrupted_brand() -> None:
     violations = find_unsupported_entities({"summary": "UTube paga menos."}, source)
 
     assert [v.token for v in violations] == ["UTube"]
-
-
-def test_a_three_letter_source_stem_supports_a_longer_model_number() -> None:
-    assert find_unsupported_entities({"summary": "Llegó GPT-4."}, "GPT is here.") == []
 
 
 def test_a_source_stem_shorter_than_three_characters_vouches_for_nothing() -> None:
@@ -204,12 +196,6 @@ def test_ignoring_punctuation_does_not_excuse_the_wrong_model_number() -> None:
     assert [v.token for v in find_unsupported_entities({"summary": "Llegó GPT-5."}, source)] == [
         "GPT-5"
     ]
-
-
-def test_a_violation_names_the_field_the_token_and_the_story() -> None:
-    violation = find_unsupported_entities({"headline": "UTube"}, SOURCE, article_id="art9")[0]
-
-    assert violation == EntityViolation(article_id="art9", field="headline", token="UTube")
 
 
 # --------------------------------------------------------------------------- #
@@ -241,22 +227,18 @@ def test_an_analyst_that_corrupts_a_name_is_caught_on_its_own_article() -> None:
     assert violations[0].article_id == corrupted.article.article_id
 
 
-def test_a_clean_edition_reports_nothing() -> None:
+def test_a_corrupted_headline_is_caught_on_the_finished_edition() -> None:
+    """A clean edition reports nothing, so the one violation below is the signal."""
     ranked = [make_ranked(i, *story) for i, story in enumerate(STORIES, start=1)]
     selection = select(ranked, SETTINGS)
     edition = build_edition(selection, SETTINGS, WINDOW, now=NOW)
 
     assert unsupported_in_edition(edition, selection.selected) == []
 
-
-def test_a_corrupted_headline_is_caught_on_the_finished_edition() -> None:
-    ranked = [make_ranked(i, *story) for i, story in enumerate(STORIES, start=1)]
-    selection = select(ranked, SETTINGS)
-    edition = build_edition(selection, SETTINGS, WINDOW, now=NOW)
     lead = edition.lead_story.model_copy(update={"headline": "UTube paga menos"})
-    edition = edition.model_copy(update={"lead_story": lead})
+    corrupted = edition.model_copy(update={"lead_story": lead})
 
-    violations = unsupported_in_edition(edition, selection.selected)
+    violations = unsupported_in_edition(corrupted, selection.selected)
     assert [(v.field, v.token) for v in violations] == [("headline", "UTube")]
 
 

@@ -62,17 +62,25 @@ def write_sources(directory: Path, body: str) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_repository_configuration_is_valid() -> None:
+def test_the_shipped_configuration_is_the_one_the_newsletter_is_tuned_for() -> None:
+    """Every editorial number the repository ships, in one place.
+
+    A retuning that silently changes what the edition prints has to change this
+    test, and a source list with a duplicate id or an invented category fails it.
+    """
     config = load_config(REAL_CONFIG_DIR, env={})
+    settings = config.newsletter
+
     assert config.sources
     assert config.enabled_sources
-    assert config.newsletter.min_score == 62  # recalibrated for the v2 rubric
-    assert config.newsletter.masthead == "Leader Intelligence Semanal"
-    assert config.newsletter.max_items == 8
+    assert settings.min_score == 62  # recalibrated for the v2 rubric
+    assert settings.masthead == "Leader Intelligence Semanal"
+    assert settings.max_items == 8
+    assert settings.max_per_subject == 2
+    assert settings.suppress_already_published is True
+    assert settings.collapse_similar_events is True
+    assert settings.similar_event_threshold == 0.21
 
-
-def test_repository_sources_have_unique_ids_and_known_categories() -> None:
-    config = load_config(REAL_CONFIG_DIR, env={})
     ids = [s.id for s in config.sources]
     assert len(ids) == len(set(ids))
     for source in config.sources:
@@ -287,19 +295,18 @@ def test_out_of_range_threshold_is_rejected(config_dir: Path) -> None:
         load_config(config_dir, env={})
 
 
-def test_the_new_caps_and_the_reprint_guard_have_defaults(config_dir: Path) -> None:
-    """Absent from YAML, the settings still hold their documented defaults."""
+def test_the_caps_the_guard_and_the_collapse_have_defaults(config_dir: Path) -> None:
+    """Absent from YAML, the settings still hold their documented defaults.
+
+    The similarity threshold is editorial policy, so it is configuration with a
+    default rather than a constant.
+    """
     settings = load_config(config_dir, env={}).newsletter
 
     assert settings.max_per_subject == 2
     assert settings.suppress_already_published is True
-
-
-def test_the_repository_configuration_caps_a_subject_and_suppresses_reprints() -> None:
-    settings = load_config(REAL_CONFIG_DIR, env={}).newsletter
-
-    assert settings.max_per_subject == 2
-    assert settings.suppress_already_published is True
+    assert settings.collapse_similar_events is True
+    assert settings.similar_event_threshold == 0.21
 
 
 def test_a_zero_subject_cap_is_rejected(config_dir: Path) -> None:
@@ -319,37 +326,15 @@ def test_a_non_boolean_reprint_guard_is_reported(config_dir: Path) -> None:
         load_config(config_dir, env={})
 
 
-def test_the_similarity_collapse_has_a_default_and_a_tuned_threshold(config_dir: Path) -> None:
-    """The threshold is editorial policy, so it is configuration with a default."""
-    settings = load_config(config_dir, env={}).newsletter
-
-    assert settings.collapse_similar_events is True
-    assert settings.similar_event_threshold == 0.21
-
-
-def test_the_repository_configuration_ships_the_measured_threshold() -> None:
-    settings = load_config(REAL_CONFIG_DIR, env={}).newsletter
-
-    assert settings.collapse_similar_events is True
-    assert settings.similar_event_threshold == 0.21
-
-
-def test_a_similarity_threshold_outside_zero_to_one_is_rejected(config_dir: Path) -> None:
-    """Cosine similarity cannot exceed 1, and 0 would fold the whole edition."""
-    for value in ("0", "1.5", "-0.2"):
+def test_an_unusable_similarity_threshold_is_rejected(config_dir: Path) -> None:
+    """Cosine similarity cannot exceed 1, 0 would fold the whole edition, and a
+    phrase is not a number. All four fail the load rather than the edition."""
+    for value in ("0", "1.5", "-0.2", "quite high"):
         (config_dir / "newsletter.yaml").write_text(
             f"{MINIMAL_NEWSLETTER}  similar_event_threshold: {value}\n", encoding="utf-8"
         )
         with pytest.raises(ConfigError, match="similar_event_threshold"):
             load_config(config_dir, env={})
-
-
-def test_a_non_numeric_similarity_threshold_is_reported(config_dir: Path) -> None:
-    (config_dir / "newsletter.yaml").write_text(
-        f"{MINIMAL_NEWSLETTER}  similar_event_threshold: quite high\n", encoding="utf-8"
-    )
-    with pytest.raises(ConfigError, match="similar_event_threshold"):
-        load_config(config_dir, env={})
 
 
 # --------------------------------------------------------------------------- #
