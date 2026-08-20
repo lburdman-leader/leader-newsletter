@@ -270,6 +270,24 @@ def test_resaving_an_edition_does_not_duplicate_its_items(db: Database) -> None:
     assert db.get_edition_article_ids("2026-W34") == ["lead", "second", "third"]
 
 
+def test_the_latest_issue_is_the_one_generated_last(db: Database) -> None:
+    """What the web reader serves at ``/``: recency is ``generated_at``, not write order."""
+    assert db.latest_issue_label() is None
+
+    newest = make_edition()
+    older = newest.model_copy(
+        update={
+            "edition_id": "2026-W33",
+            "issue_label": "2026-W33",
+            "generated_at": NOW - timedelta(days=7),
+        }
+    )
+    db.save_edition(newest)
+    db.save_edition(older)  # written after it, generated before it
+
+    assert db.latest_issue_label() == "2026-W34"
+
+
 def test_every_published_story_can_be_traced_to_its_source(db: Database) -> None:
     """AC3: edition -> item -> article -> source, by join."""
     db.upsert_source(make_source(), now=NOW)

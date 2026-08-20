@@ -64,7 +64,20 @@
     color: var(--muted);
   }
   .masthead-top { padding-bottom: 0.625rem; }
-  .masthead-foot { padding-top: 0.625rem; letter-spacing: 0.04em; }
+  .masthead-foot { padding-top: 0.625rem; letter-spacing: 0.04em; align-items: center; }
+
+  /* The call to action a reader sees without scrolling: a button on the
+     masthead strip, in the accent the issue block already uses. */
+  .submit-button {
+    padding: 0.4rem 0.85rem;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+  }
+  .submit-button:hover, .submit-button:focus { background: var(--ink); text-decoration: none; }
 
   .masthead-lockup {
     display: flex;
@@ -363,6 +376,9 @@
     <div class="masthead-foot">
       <span>{{ tagline }}</span>
       <span>{{ items | length }} {{ "nota" if items | length == 1 else "notas" }}</span>
+      {% if submit_url %}
+      <a class="submit-button" href="{{ submit_url }}" target="_blank" rel="noopener noreferrer">Enviar un enlace &rarr;</a>
+      {% endif %}
     </div>
   </header>
 

@@ -468,6 +468,19 @@ class PostgresStorage:
         )
         return NewsletterEdition.model_validate_json(row["payload"]) if row else None
 
+    def latest_issue_label(self) -> str | None:
+        """The issue label of the most recently generated edition, or None.
+
+        ``edition_id`` breaks a tie so two editions written in the same instant
+        still resolve to one answer rather than to whichever row the planner
+        happened to return.
+        """
+        row = self._fetchone(
+            "SELECT issue_label FROM newsletter_editions "
+            "ORDER BY generated_at DESC, edition_id DESC LIMIT 1"
+        )
+        return str(row["issue_label"]) if row else None
+
     def get_edition_article_ids(self, edition_id: str) -> list[str]:
         rows = self._fetchall(
             "SELECT article_id FROM edition_items WHERE edition_id = %s ORDER BY position",

@@ -2,6 +2,8 @@
 
 **Edición 2026-W34** · 11 ago 2026 – 17 ago 2026 · 4 notas
 
+¿Viste algo que deberíamos cubrir esta semana? [Enviar un enlace →](https://intake.example/submit)
+
 ---
 
 ## Lo esencial de la semana
@@ -61,10 +63,6 @@ Factual summary of: Ad rates shift for mid-size channels.
 **Por qué importa:** It changes what enterprise teams pay and plan for.
 
 Tubewatch · 15 ago 2026 · [Ver la fuente →](https://news.example/story-3)
-
----
-
-¿Viste algo que deberíamos cubrir esta semana? [Enviar un enlace →](https://intake.example/submit)
 
 ---
 

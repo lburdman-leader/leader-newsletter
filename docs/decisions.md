@@ -1210,3 +1210,46 @@ would be a different one.
 runtime dependency (`concurrent.futures` is the standard library); the v2 assessment cache
 stays valid, and the same stored inputs still produce the same artifacts, byte for byte.
 
+---
+
+## 2026-08-20 · ADR-0038 · The server serves the newspaper at `/`, and the call to action rides the masthead
+
+**Decision.** `newsletter serve` is what a reader opens, not only what a submitter opens.
+`GET /` now serves the latest edition's `newsletter.html`; the form keeps `/submit`. The
+reader call to action moved to the top of the edition: a button-styled anchor in the
+`masthead-foot` strip (HTML) and the line directly under the masthead block (Markdown). The
+HTML keeps the colophon banner as well — the two are visually different objects, a button in
+the furniture and a banner at the foot — while the Markdown carries the line once, because in
+plain text the same sentence twice is noise. Unset `submissions.form_url` still renders
+nothing, in either position.
+
+**Which edition is "latest" — `generated_at`, from the database.** A new
+`Storage.latest_issue_label()` (implemented in both backends, ordered by `generated_at DESC,
+edition_id DESC`) answers it. That is the instant the run recorded when it wrote the
+artifacts. File mtime was rejected: a checkout, a copy or a restore rewrites it, and
+`output/` also holds `sample-edition` and `fixture-edition` directories that no run generated
+and that an mtime scan would happily publish. The tie-break on `edition_id` keeps the answer
+single-valued.
+
+**Turning a request into a file read, safely.** `/` takes no parameter at all: the issue
+label comes from the database, is matched whole against `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`
+(leading alphanumeric rules out `..` and dotfiles; the class contains no separator, so a
+label can only name one directory directly under `output_dir`), and only then joins the
+configured output directory with the fixed filename `newsletter.html`. The joined path is
+resolved and required to stay inside the resolved output directory, so a symlinked edition
+directory cannot reach out either. Every other path — `/../`, its encoded spellings, an
+explicit `/2026-W34/newsletter.html` — is the pre-existing 404, which names no path but the
+form's. There is no static-file route and no per-label route: the edition is self-contained
+(inline CSS, no script, no external asset), so one route serves it whole.
+
+**No edition yet answers 200, not 404.** The address is right and the server is healthy; what
+is missing is a run. The page says so and names `python -m newsletter run`. A 404 would tell
+an operator's uptime check that a fresh install is misconfigured. The same page answers when
+the database names an edition whose file was deleted or whose output directory moved — a
+missing newspaper, never a 500.
+
+**Not changed.** No prompt, no schema version, no `min_score`, no score formula, no new
+runtime dependency (`wsgiref` and the standard library); the v2 assessment cache stays valid,
+and the edition is still byte-identical for identical inputs. The golden edition changed by
+exactly the moved call to action and its CSS; `expected_newsletter.json` is untouched.
+

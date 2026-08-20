@@ -111,6 +111,17 @@ class Storage(Protocol):
         """Identity keys of every story a previous edition already printed (AC9)."""
         ...
 
+    def latest_issue_label(self) -> str | None:
+        """The issue label of the most recently generated edition, or None.
+
+        "Most recent" is the edition's own ``generated_at`` -- the instant the run
+        recorded when it wrote the artifacts -- and not a file timestamp, which a
+        copy, a restore or a checkout rewrites. The web reader turns the label
+        into the one artifact path it is allowed to open, so a backend must
+        return a label exactly as it was stored, never a path.
+        """
+        ...
+
     # -- reader submissions ------------------------------------------------- #
 
     def save_submission(self, submission: Submission) -> bool:

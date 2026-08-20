@@ -1,4 +1,4 @@
-"""The reader submission form: routing, the safety gate, and hostile input.
+"""The reader-facing server: the edition at ``/``, the form, and hostile input.
 
 The application is a WSGI callable, so it is tested as one -- an ``environ``
 dictionary in, a status line and bytes out. No socket is opened; the autouse
@@ -20,10 +20,21 @@ from newsletter.ingestion.submissions import create_submission, submission_id_fo
 from newsletter.models import SourceConfig, SubmissionStatus
 from newsletter.persistence.base import PersistenceError
 from newsletter.persistence.sqlite import Database
-from newsletter.web.app import FORM_MEDIA_TYPE, MAX_BODY_BYTES, SubmissionApp
+from newsletter.web.app import (
+    EDITION_FILENAME,
+    FORM_MEDIA_TYPE,
+    MAX_BODY_BYTES,
+    RUN_COMMAND,
+    SubmissionApp,
+)
+from tests.unit.test_persistence import make_edition
 
 NOW = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
 LINK = "https://news.example/2026/08/story"
+ISSUE = "2026-W34"
+EDITION_HTML = "<!DOCTYPE html>\n<html lang=es><body><h1>La edición</h1></body></html>\n"
+#: Planted outside the output directory: if a label ever escapes, this shows up.
+SECRET = "TOP SECRET"
 
 
 @dataclass
@@ -56,7 +67,9 @@ def make_config(tmp_path: Path, **submission_overrides: object) -> AppConfig:
             )
         ],
         newsletter=NewsletterSettings(masthead="Leader Intelligence Semanal"),
-        runtime=RuntimeSettings(db_path=tmp_path / "newsletter.sqlite"),
+        runtime=RuntimeSettings(
+            db_path=tmp_path / "newsletter.sqlite", output_dir=tmp_path / "output"
+        ),
         submissions=SubmissionSettings(**submission_overrides),  # type: ignore[arg-type]
     )
 
@@ -64,6 +77,27 @@ def make_config(tmp_path: Path, **submission_overrides: object) -> AppConfig:
 @pytest.fixture
 def storage_path(tmp_path: Path) -> Path:
     return tmp_path / "newsletter.sqlite"
+
+
+@pytest.fixture
+def output_dir(tmp_path: Path) -> Path:
+    return tmp_path / "output"
+
+
+def record_edition(storage_path: Path, label: str) -> None:
+    """Tell the database an edition exists under ``label`` -- disk untouched."""
+    edition = make_edition().model_copy(update={"edition_id": label, "issue_label": label})
+    with Database(storage_path) as database:
+        database.save_edition(edition)
+
+
+def publish_edition(storage_path: Path, output_dir: Path, label: str = ISSUE) -> Path:
+    """Record an edition *and* write the artifact the run would have written."""
+    record_edition(storage_path, label)
+    path = output_dir / label / EDITION_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(EDITION_HTML, encoding="utf-8", newline="\n")
+    return path
 
 
 @pytest.fixture
@@ -120,6 +154,94 @@ def call(
 
 
 # --------------------------------------------------------------------------- #
+# the edition at /
+# --------------------------------------------------------------------------- #
+
+
+def test_the_root_serves_the_latest_edition(
+    app: SubmissionApp, storage_path: Path, output_dir: Path
+) -> None:
+    publish_edition(storage_path, output_dir)
+
+    reply = call(app, path="/")
+
+    assert reply.code == 200
+    assert reply.body == EDITION_HTML
+    assert reply.headers["Content-Type"] == "text/html; charset=utf-8"
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        pytest.param("never generated", id="no edition at all"),
+        pytest.param("artifact deleted", id="the database names one the disk lost"),
+    ],
+)
+def test_without_a_readable_edition_the_root_says_how_to_print_one(
+    app: SubmissionApp, storage_path: Path, output_dir: Path, state: str
+) -> None:
+    """A newspaper nobody printed yet is an empty page, never a 500."""
+    if state == "artifact deleted":
+        publish_edition(storage_path, output_dir).unlink()
+
+    reply = call(app, path="/")
+
+    assert reply.code == 200
+    assert RUN_COMMAND in reply.body
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        pytest.param("../secret", id="climbs out of the output directory"),
+        pytest.param("..", id="the parent itself"),
+        pytest.param("2026-W34/../..", id="climbs from a real issue"),
+        pytest.param("/etc/passwd", id="an absolute path"),
+        pytest.param(".hidden", id="a dotfile"),
+        pytest.param("W" * 200, id="absurdly long"),
+    ],
+)
+def test_a_stored_label_that_is_not_a_plain_issue_name_reads_nothing(
+    app: SubmissionApp, storage_path: Path, output_dir: Path, tmp_path: Path, label: str
+) -> None:
+    """The label names one directory under the output directory, or it names nothing."""
+    planted = tmp_path / "secret" / EDITION_FILENAME
+    planted.parent.mkdir(parents=True, exist_ok=True)
+    planted.write_text(SECRET, encoding="utf-8")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    record_edition(storage_path, label)
+
+    reply = call(app, path="/")
+
+    assert reply.code == 200
+    assert SECRET not in reply.body
+    assert RUN_COMMAND in reply.body
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/../",
+        "/../../etc/passwd",
+        "/%2e%2e/",
+        f"/{ISSUE}/{EDITION_FILENAME}",
+        f"/output/{ISSUE}/{EDITION_FILENAME}",
+    ],
+)
+def test_a_request_that_asks_for_a_file_by_name_gets_a_404(
+    app: SubmissionApp, storage_path: Path, output_dir: Path, path: str
+) -> None:
+    """Only ``/`` serves a file, and it takes its name from the database."""
+    publish_edition(storage_path, output_dir)
+
+    reply = call(app, path=path)
+
+    assert reply.code == 404
+    assert EDITION_HTML not in reply.body
+    assert path not in reply.body
+
+
+# --------------------------------------------------------------------------- #
 # the form
 # --------------------------------------------------------------------------- #
 
@@ -149,7 +271,6 @@ def test_the_form_page_is_self_contained_and_scriptless(app: SubmissionApp) -> N
 @pytest.mark.parametrize(
     ("method", "path", "expected"),
     [
-        ("GET", "/", 302),
         ("POST", "/", 405),
         ("DELETE", "/submit", 405),
         ("GET", "/wp-login.php", 404),
@@ -162,8 +283,6 @@ def test_routing_answers_with_the_right_status(
     reply = call(app, method=method, path=path)
 
     assert reply.code == expected
-    if expected == 302:
-        assert reply.headers["Location"] == "/submit"
     if expected == 405:
         assert "GET" in reply.headers["Allow"]
 
@@ -171,10 +290,10 @@ def test_routing_answers_with_the_right_status(
 def test_every_link_it_prints_respects_the_prefix_it_is_mounted_under(app: SubmissionApp) -> None:
     """A real deployment may mount it at /intake; the form must post back to itself."""
     form = call(app, script_name="/intake")
-    root = call(app, path="/", script_name="/intake")
+    missing = call(app, path="/nowhere", script_name="/intake")
 
     assert 'action="/intake/submit"' in form.body
-    assert root.headers["Location"] == "/intake/submit"
+    assert "/intake/submit" in missing.body
 
 
 # --------------------------------------------------------------------------- #

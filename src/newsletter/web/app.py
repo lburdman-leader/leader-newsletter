@@ -1,7 +1,16 @@
-"""The reader submission form, as a WSGI application.
+"""The newspaper and its submission form, as a WSGI application.
 
-The edition links to this page, so the whole loop -- read the newspaper, propose
-a link, have it considered on the next run -- happens without a terminal.
+``GET /`` serves the latest edition and ``GET|POST /submit`` takes a proposal, so
+the whole loop -- read the newspaper, propose a link, have it considered on the
+next run -- happens without a terminal.
+
+**The edition is served from a name the database chose, never one the request
+carried.** ``/`` takes no parameter: the issue label comes from
+:meth:`~newsletter.persistence.base.Storage.latest_issue_label`, is matched
+against :data:`ISSUE_LABEL_PATTERN`, and only then joins the configured output
+directory with a fixed filename. The joined path is resolved and checked to be
+inside that directory, so a symlinked edition folder cannot reach out of it
+either. Every other path is a 404 that names no path but the form's.
 
 **Why WSGI and not a framework.** The application is a plain callable, which
 ``wsgiref.simple_server`` runs locally with no dependency at all and which
@@ -26,7 +35,9 @@ otherwise.
 from __future__ import annotations
 
 import html
+import re
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
 
@@ -49,6 +60,19 @@ MAX_BODY_BYTES = 8 * 1024
 
 FORM_MEDIA_TYPE = "application/x-www-form-urlencoded"
 FORM_PATH = "/submit"
+EDITION_PATH = "/"
+
+#: The one file ``/`` may open, inside the one directory it may look in.
+EDITION_FILENAME = "newsletter.html"
+
+#: What an issue label is allowed to look like before it may name a directory.
+#: It must *start* alphanumeric, which rules out ``..`` and dotfiles, and the
+#: character class contains no separator, so a label can only ever name one
+#: directory directly under the output directory.
+ISSUE_LABEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+#: The command that produces the thing ``/`` serves, printed when there is none.
+RUN_COMMAND = "python -m newsletter run"
 
 #: The page needs no script and no external asset, so it is allowed neither.
 CONTENT_SECURITY_POLICY = (
@@ -159,6 +183,23 @@ def form_page(action: str, *, masthead: str) -> bytes:
     )
 
 
+def no_edition_page(form_path: str, *, masthead: str) -> bytes:
+    """What ``/`` answers before a first edition exists.
+
+    Not an error page: nothing failed, the newspaper has simply not been printed
+    yet, so it says which command prints it and leaves the form reachable.
+    """
+    return page(
+        "Todavía no hay una edición",
+        f"<h1>Todav&iacute;a no hay una edici&oacute;n</h1>\n"
+        f'<p class="eyebrow">{escape(masthead)}</p>\n'
+        "<p>Ninguna edici&oacute;n fue generada hasta ahora. Para publicar la primera, "
+        f"ejecuta:</p>\n<p><code>{escape(RUN_COMMAND)}</code></p>\n"
+        f'<p class="foot"><a href="{escape(form_path)}">Proponer un enlace</a> para la '
+        "pr&oacute;xima edici&oacute;n.</p>",
+    )
+
+
 def outcome_page(
     headline: str,
     detail: str,
@@ -200,11 +241,6 @@ def respond(status: str, body: bytes, *, extra: Iterable[tuple[str, str]] = ()) 
         *extra,
     ]
     return status, headers, body
-
-
-def redirect(location: str) -> Response:
-    body = page("Proponer un enlace", f'<p><a href="{escape(location)}">Proponer un enlace</a></p>')
-    return respond("302 Found", body, extra=[("Location", location)])
 
 
 # --------------------------------------------------------------------------- #
@@ -254,7 +290,7 @@ def read_form(environ: Environ) -> dict[str, str]:
 
 
 class SubmissionApp:
-    """A WSGI callable serving ``GET /submit`` and ``POST /submit``.
+    """A WSGI callable serving ``GET /``, ``GET /submit`` and ``POST /submit``.
 
     ``storage_factory`` exists so a test can hand in an in-memory database; in
     production it resolves the configured DSN through
@@ -316,10 +352,10 @@ class SubmissionApp:
         path = (environ.get("PATH_INFO") or "/").rstrip("/") or "/"
         form_path = self.url_for(environ, FORM_PATH)
 
-        if path == "/":
+        if path == EDITION_PATH:
             if method != "GET":
                 return self.method_not_allowed(("GET",), form_path)
-            return redirect(form_path)
+            return self.get_edition(form_path)
 
         if path == FORM_PATH:
             if method == "GET":
@@ -340,6 +376,16 @@ class SubmissionApp:
         )
 
     # -- routes ------------------------------------------------------------- #
+
+    def get_edition(self, form_path: str) -> Response:
+        """The latest edition, or the page that says there is not one yet."""
+        edition = self.read_latest_edition()
+        if edition is None:
+            return respond(
+                "200 OK",
+                no_edition_page(form_path, masthead=self.config.newsletter.masthead),
+            )
+        return respond("200 OK", edition)
 
     def get_form(self, form_path: str) -> Response:
         if not self.config.submissions.enabled:
@@ -419,6 +465,46 @@ class SubmissionApp:
                 form_path=form_path,
             ),
         )
+
+    # -- the published edition ---------------------------------------------- #
+
+    def latest_issue_label(self) -> str | None:
+        """The issue the database says was generated last, through the protocol."""
+        storage = self._storage_factory().connect()
+        try:
+            return storage.latest_issue_label()
+        finally:
+            storage.close()
+
+    def read_latest_edition(self) -> bytes | None:
+        """The bytes of the latest edition's HTML, or None when there is none.
+
+        Three things have to hold before a byte is read: the database names an
+        issue, the name is one :data:`ISSUE_LABEL_PATTERN` accepts, and the file
+        it resolves to is still inside the configured output directory. A label
+        that fails any of them is treated as "no edition" -- the reader is never
+        told what the server looked for, and the operator gets the reason in the
+        log.
+        """
+        label = self.latest_issue_label()
+        if label is None:
+            return None
+        if not ISSUE_LABEL_PATTERN.fullmatch(label):
+            logger.warning("stored issue label is not servable: %r", label)
+            return None
+
+        root = Path(self.config.runtime.output_dir).resolve()
+        path = (root / label / EDITION_FILENAME).resolve()
+        if not path.is_relative_to(root):  # a symlinked edition directory
+            logger.warning("edition for %s resolves outside %s", label, root)
+            return None
+        try:
+            return path.read_bytes()
+        except OSError as exc:
+            # The artifacts were deleted, or the output directory moved since the
+            # run. That is a missing newspaper, not a server failure.
+            logger.warning("cannot read the edition for %s: %s", label, exc)
+            return None
 
     # -- helpers ------------------------------------------------------------ #
 

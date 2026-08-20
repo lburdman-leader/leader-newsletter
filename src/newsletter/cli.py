@@ -111,7 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     serve = subparsers.add_parser(
-        "serve", help="serve the reader submission form (localhost only by default)"
+        "serve", help="serve the latest edition and the submission form (localhost by default)"
     )
     serve.add_argument(
         "--host",
@@ -258,7 +258,7 @@ def cmd_submit(config: AppConfig, args: argparse.Namespace) -> int:
 
 
 def cmd_serve(config: AppConfig, args: argparse.Namespace) -> int:
-    """Serve the submission form the edition links to.
+    """Serve the latest edition at ``/`` and the submission form it links to.
 
     ``wsgiref`` runs it here so a local run needs no dependency; the application
     is a plain WSGI callable, so a deployment runs the same object under gunicorn
@@ -266,7 +266,7 @@ def cmd_serve(config: AppConfig, args: argparse.Namespace) -> int:
     """
     from wsgiref.simple_server import make_server
 
-    from newsletter.web.app import FORM_PATH, SubmissionApp
+    from newsletter.web.app import EDITION_PATH, FORM_PATH, SubmissionApp
 
     if not config.submissions.enabled:
         print("Submissions are disabled in config/newsletter.yaml.", file=sys.stderr)
@@ -280,7 +280,9 @@ def cmd_serve(config: AppConfig, args: argparse.Namespace) -> int:
         print(f"Error: could not bind {args.host}:{args.port}: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
-    report(f"Submission form on http://{args.host}:{args.port}{FORM_PATH}")
+    report(f"Latest edition on http://{args.host}:{args.port}{EDITION_PATH}")
+    report_plain(f"    form     http://{args.host}:{args.port}{FORM_PATH}")
+    report_plain(f"    editions {config.runtime.output_dir}")
     report_plain(f"    database {redact_dsn(config.runtime.database_url)}")
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         report_plain(

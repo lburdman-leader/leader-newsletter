@@ -70,7 +70,7 @@ python -m newsletter validate                             # validate configurati
 python -m newsletter sources                              # list configured sources
 python -m newsletter submit <url> --by NAME --note TEXT   # propose a story
 python -m newsletter submissions [--status pending]       # what happened to each
-python -m newsletter serve [--host ADDR --port N]         # the reader submission form
+python -m newsletter serve [--host ADDR --port N]         # the edition and the reader form
 
 python -m pytest                                          # 485 tests, no network, no key
 ruff check . && ruff format --check .
@@ -178,8 +178,15 @@ address space. Tune it under `submissions:` in `config/newsletter.yaml`, or set
 ### From the newsletter itself, without a terminal
 
 ```bash
-python -m newsletter serve            # http://127.0.0.1:8765/submit
+python -m newsletter serve            # http://127.0.0.1:8765/         the latest edition
+                                      # http://127.0.0.1:8765/submit   the form
 ```
+
+`/` serves the most recently **generated** edition — the one the database recorded last, not
+the newest file on disk — read from `<output_dir>/<issue_label>/newsletter.html`. The issue
+label comes from the database and never from the request, so there is nothing in the URL to
+point at another file; anything else is a 404. Before the first run there is nothing to
+serve, and the page says so and names the command that fixes it.
 
 The form asks for three things — **full name**, **link**, and an optional **description** —
 and writes them straight into the `submissions` table of the configured database
@@ -191,8 +198,9 @@ blocklist, and a refusal to resolve into private address space.
 
 Set `submissions.form_url` in `config/newsletter.yaml` to the address readers can actually
 reach, and every rendered edition prints a call to action linking to it, opening in a new
-window. Leave it empty and the edition prints nothing at all — an intake nobody can reach
-is worse than no invitation.
+window: a button on the masthead, where nobody has to scroll to find it, and a second
+invitation at the foot of the HTML edition. Leave it empty and the edition prints nothing at
+all, in either place — an intake nobody can reach is worse than no invitation.
 
 `serve` binds to `127.0.0.1` on purpose: **the form has no authentication**, so whoever can
 reach it can queue links. Exposing it is a deployment decision. The application is a plain

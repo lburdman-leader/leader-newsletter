@@ -453,6 +453,19 @@ def test_the_call_to_action_links_to_the_configured_form(html: str, markdown: st
     assert f"[Enviar un enlace →]({SUBMIT_URL})" in markdown
 
 
+def test_the_call_to_action_is_read_before_anything_is_scrolled(html: str, markdown: str) -> None:
+    """Nobody reads a newspaper to the end to find out how to write to it."""
+    button = (
+        f'<a class="submit-button" href="{SUBMIT_URL}" '
+        'target="_blank" rel="noopener noreferrer">Enviar un enlace &rarr;</a>'
+    )
+    assert button in html
+    assert html.index(button) < html.index("</header>")
+    # and it is still carried at the foot of the page, as a newspaper does
+    assert html.index('<aside class="submit-cta">') > html.index("</header>")
+    assert markdown.index("Enviar un enlace") < markdown.index("## Lo esencial de la semana")
+
+
 @pytest.mark.parametrize("configured", [None, "", "   "])
 def test_no_call_to_action_is_printed_without_a_form(edition, configured: str | None) -> None:
     """An intake nobody can reach must leave no dangling text behind."""
@@ -460,6 +473,7 @@ def test_no_call_to_action_is_printed_without_a_form(edition, configured: str | 
     markdown = render_markdown(edition, submit_url=configured)
 
     assert '<aside class="submit-cta">' not in html
+    assert 'class="submit-button"' not in html
     assert "Enviar un enlace" not in html
     assert "¿Viste algo" not in html
     assert "Enviar un enlace" not in markdown

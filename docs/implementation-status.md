@@ -11,6 +11,8 @@
 **Stage 11 — reader intake from the edition itself — COMPLETE** (added scope, ADR-0036)
 **Stage 12 — run time: bounded concurrency in the two waiting stages — COMPLETE**
 (added scope, ADR-0037)
+**Stage 13 — the edition is served at `/`, the CTA sits on the masthead — COMPLETE**
+(added scope, ADR-0038)
 
 The engine has run live against real sources and a real key, and now publishes in Spanish
 for a named audience (ADR-0032). What remains is editorial judgment over time, not build
@@ -33,6 +35,7 @@ work.
 | 10 | Spanish edition, audience rubric (added scope) | complete | 2026-08-19 |
 | 11 | Reader intake: CTA in the edition + `serve` (added scope) | complete | 2026-08-20 |
 | 12 | Bounded concurrency for analysis and fetching (added scope) | complete | 2026-08-20 |
+| 13 | Edition served at `/`, CTA on the masthead (added scope) | complete | 2026-08-20 |
 
 ## Current objective
 
@@ -53,6 +56,17 @@ Entertainment — a Latin American children's YouTube company moving into AI pro
    edition cannot distinguish a bad threshold from a slow news week.
 
 ## Last successful validation
+
+`2026-08-20` — full gate after serving the edition at `/` (ADR-0038):
+
+| Check | Result |
+|-------|--------|
+| `ruff check .` / `ruff format --check .` | pass (72 files formatted) |
+| `python -m pytest` | **683 passed** (was 668; +15 for the edition route and the moved CTA) |
+| `python scripts/validate_repo.py` | OK, 9 checks, 0 warnings (72 files) |
+| `python -m newsletter validate` | valid, 15 sources (14 enabled) |
+| golden edition | regenerated; the only diff is the CTA on the masthead and its CSS |
+| `expected_newsletter.json` | byte-identical, as it must be |
 
 `2026-08-20` — full gate after bounded concurrency (ADR-0037):
 
@@ -129,7 +143,7 @@ src/newsletter/
     prompts/article_analyzer_v{1,2}.md, prompts/newsletter_editor_v{1,2}.md  (v2 live)
   pipeline.py               the state machine: one run, injectable collaborators
   ingestion/submissions.py  reader-submission gate, adapter and identity
-  web/app.py                the submission form as a WSGI callable (no framework)
+  web/app.py                the edition at / and the form at /submit, as a WSGI callable
   rendering/
     renderer.py             link validation, Jinja env, artifact writing
     templates/newsletter.html.j2, templates/newsletter.md.j2
