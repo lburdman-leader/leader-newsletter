@@ -10,7 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from newsletter.config import AppConfig, ConfigError, NewsletterSettings, load_config
+from newsletter.config import (
+    AppConfig,
+    ConfigError,
+    NewsletterSettings,
+    SubmissionSettings,
+    load_config,
+)
 from newsletter.models import TopicCategory, WindowMode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -382,6 +388,44 @@ def test_environment_wins_over_yaml(config_dir: Path) -> None:
     assert config.runtime.analyzer_model == "from-env"
 
 
+# --------------------------------------------------------------------------- #
+# concurrency limits
+# --------------------------------------------------------------------------- #
+
+
+def test_concurrency_limits_have_working_defaults(config_dir: Path) -> None:
+    runtime = load_config(config_dir, env={}).runtime
+    assert runtime.analysis_concurrency == 8
+    assert runtime.fetch_concurrency == 6
+
+
+def test_concurrency_limits_can_be_set_from_yaml_or_the_environment(config_dir: Path) -> None:
+    (config_dir / "newsletter.yaml").write_text(
+        MINIMAL_NEWSLETTER + "\nruntime:\n  analysis_concurrency: 4\n  fetch_concurrency: 2\n",
+        encoding="utf-8",
+    )
+    assert load_config(config_dir, env={}).runtime.analysis_concurrency == 4
+    assert load_config(config_dir, env={}).runtime.fetch_concurrency == 2
+
+    overridden = load_config(config_dir, env={"NEWSLETTER_ANALYSIS_CONCURRENCY": "1"})
+    assert overridden.runtime.analysis_concurrency == 1  # the sequential escape hatch
+    assert overridden.runtime.fetch_concurrency == 2
+
+
+@pytest.mark.parametrize("bad", ["0", "-3", "not a number", "8.5"])
+def test_an_unusable_concurrency_is_refused_before_the_run_starts(
+    config_dir: Path, bad: str
+) -> None:
+    with pytest.raises(ConfigError, match=r"(?i)concurrency"):
+        load_config(config_dir, env={"NEWSLETTER_ANALYSIS_CONCURRENCY": bad})
+
+
+def test_a_concurrency_beyond_the_ceiling_is_refused(config_dir: Path) -> None:
+    """A limit is a limit: 500 threads is a way to get banned, not a way to go fast."""
+    with pytest.raises(ConfigError, match="fetch_concurrency"):
+        load_config(config_dir, env={"NEWSLETTER_FETCH_CONCURRENCY": "500"})
+
+
 def test_invalid_log_level_is_rejected(config_dir: Path) -> None:
     with pytest.raises(ConfigError, match="log_level"):
         load_config(config_dir, env={"LOG_LEVEL": "LOUD"})
@@ -439,3 +483,28 @@ def test_section_titles_have_defaults_for_every_category() -> None:
 def test_negative_section_limit_is_rejected() -> None:
     with pytest.raises(ValueError, match="section_limits"):
         NewsletterSettings(section_limits={TopicCategory.AI_MODELS: -1})
+
+
+# --------------------------------------------------------------------------- #
+# the reader submission form
+# --------------------------------------------------------------------------- #
+
+
+def test_no_submission_form_is_configured_by_default() -> None:
+    """Without an address, the edition prints no call to action at all."""
+    assert SubmissionSettings().form_url is None
+    assert SubmissionSettings(form_url="   ").form_url is None
+
+
+@pytest.mark.parametrize(
+    "bad", ["javascript:alert(1)", "/submit", "submissions.example/submit", "mailto:a@b.example"]
+)
+def test_a_submission_form_url_that_cannot_be_published_is_rejected(
+    config_dir: Path, bad: str
+) -> None:
+    """It is printed as a link in the edition, so it is validated at load time."""
+    (config_dir / "newsletter.yaml").write_text(
+        MINIMAL_NEWSLETTER + f'\nsubmissions:\n  form_url: "{bad}"\n', encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="form_url"):
+        load_config(config_dir, env={})

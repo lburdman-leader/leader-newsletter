@@ -105,7 +105,13 @@ def make_sources() -> list[SourceConfig]:
     ]
 
 
-def make_config(tmp_path: Path, **newsletter_overrides: Any) -> AppConfig:
+def make_config(
+    tmp_path: Path,
+    *,
+    analysis_concurrency: int = 8,
+    fetch_concurrency: int = 6,
+    **newsletter_overrides: Any,
+) -> AppConfig:
     settings: dict[str, Any] = {
         "masthead": "AI & Digital Intelligence Weekly",
         "tagline": "Integration fixture edition",
@@ -126,7 +132,12 @@ def make_config(tmp_path: Path, **newsletter_overrides: Any) -> AppConfig:
     return AppConfig(
         sources=make_sources(),
         newsletter=NewsletterSettings(**settings),
-        runtime=RuntimeSettings(output_dir=tmp_path / "output", db_path=tmp_path / "news.sqlite"),
+        runtime=RuntimeSettings(
+            output_dir=tmp_path / "output",
+            db_path=tmp_path / "news.sqlite",
+            analysis_concurrency=analysis_concurrency,
+            fetch_concurrency=fetch_concurrency,
+        ),
     )
 
 
@@ -261,7 +272,11 @@ def run_fixture_pipeline(
 ):
     config = make_config(tmp_path, **config_overrides)
     context = RunContext.create(config, window, now=NOW)
-    analyzer = ArticleAnalyzer(ScriptedAnalyzerClient(), cache=database)
+    analyzer = ArticleAnalyzer(
+        ScriptedAnalyzerClient(),
+        cache=database,
+        concurrency=config.runtime.analysis_concurrency,
+    )
 
     # The editor is consulted after selection, so the ids are only known then;
     # _EchoEditor rewires its fake to answer with whatever it was sent.
@@ -583,6 +598,39 @@ def test_two_identical_runs_produce_identical_artifacts(
         left = (tmp_path / "run-a" / "output" / "2026-W34" / filename).read_text(encoding="utf-8")
         right = (tmp_path / "run-b" / "output" / "2026-W34" / filename).read_text(encoding="utf-8")
         assert left == right, filename
+
+
+def test_concurrency_does_not_change_a_single_published_byte(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """AC9 under a thread pool: the run is faster and the edition is identical.
+
+    Concurrency 1 is the sequential pipeline this replaced, so comparing it to 8
+    over the same fixtures is the whole proof — including the run manifest, where
+    the fetch of a source that is down has to be recorded in the same place.
+    """
+    sequential = run_fixture_pipeline(
+        tmp_path / "sequential", http, analysis_concurrency=1, fetch_concurrency=1
+    )
+    concurrent = run_fixture_pipeline(
+        tmp_path / "concurrent", http, analysis_concurrency=8, fetch_concurrency=6
+    )
+
+    for filename in ("newsletter.html", "newsletter.md", "newsletter.json"):
+        left = (tmp_path / "sequential" / "output" / "2026-W34" / filename).read_bytes()
+        right = (tmp_path / "concurrent" / "output" / "2026-W34" / filename).read_bytes()
+        assert left == right, filename
+
+    def comparable(result) -> list[tuple[str, str, str | None]]:
+        return [
+            (error.stage.value, error.exception_class, error.source_id)
+            for error in result.manifest.errors
+        ]
+
+    assert comparable(sequential) == comparable(concurrent)
+    assert [error.message for error in sequential.manifest.errors] == [
+        error.message for error in concurrent.manifest.errors
+    ]
 
 
 # --------------------------------------------------------------------------- #

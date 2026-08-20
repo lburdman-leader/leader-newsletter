@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -244,6 +246,49 @@ def test_rate_limiting_is_retried_then_reported_as_unavailable() -> None:
     assert len(fake.responses.calls) == 2
 
 
+def test_a_rate_limit_wait_is_jittered_so_a_batch_does_not_retry_in_lockstep() -> None:
+    """Eight concurrent calls hit the limit together; they must not come back together."""
+    error = openai.RateLimitError("slow down", response=http_response(429), body=None)
+
+    client_a, _, slept_a = make_client(
+        error, ok_response(), max_attempts=2, backoff_seconds=1.0, jitter=lambda: 1.0
+    )
+    client_a.parse(instructions="r", content="c", schema=AssessmentPayload)
+    client_b, _, slept_b = make_client(
+        error, ok_response(), max_attempts=2, backoff_seconds=1.0, jitter=lambda: 0.0
+    )
+    client_b.parse(instructions="r", content="c", schema=AssessmentPayload)
+
+    assert slept_b == [1.0]  # the floor is the backoff it would have waited anyway
+    assert slept_a == [1.5]  # and at most half again on top
+
+
+def test_a_server_that_asks_for_more_time_gets_it_within_reason() -> None:
+    def limited(retry_after: str):
+        response = httpx2.Response(429, request=REQUEST, headers={"retry-after": retry_after})
+        return openai.RateLimitError("slow down", response=response, body=None)
+
+    client, _, slept = make_client(
+        limited("5"), ok_response(), max_attempts=2, backoff_seconds=1.0, jitter=lambda: 0.0
+    )
+    client.parse(instructions="r", content="c", schema=AssessmentPayload)
+    assert slept == [5.0]
+
+    # A header is a hint, not an instruction: a run is never parked for an hour.
+    client, _, slept = make_client(
+        limited("3600"), ok_response(), max_attempts=2, backoff_seconds=1.0, jitter=lambda: 0.0
+    )
+    client.parse(instructions="r", content="c", schema=AssessmentPayload)
+    assert slept == [30.0]
+
+    # Nonsense falls back to our own backoff rather than to zero or to a crash.
+    client, _, slept = make_client(
+        limited("soon"), ok_response(), max_attempts=2, backoff_seconds=1.0, jitter=lambda: 0.0
+    )
+    client.parse(instructions="r", content="c", schema=AssessmentPayload)
+    assert slept == [1.0]
+
+
 def test_server_errors_are_transient() -> None:
     error = openai.InternalServerError("boom", response=http_response(500), body=None)
     client, fake, _ = make_client(error, ok_response(), max_attempts=2)
@@ -401,6 +446,8 @@ def test_manifest_counts_a_live_call() -> None:
 
 
 def test_analyze_all_isolates_a_failing_article() -> None:
+    # concurrency=1 because this fake answers by call order: which article gets
+    # the refusal is the point of the test, so it must not be a race.
     client, _, _ = make_client(ok_response(), refusal_response(), ok_response(), max_attempts=1)
     manifest = RunManifest(run_id="r1", started_at=NOW)
     articles = [
@@ -409,7 +456,7 @@ def test_analyze_all_isolates_a_failing_article() -> None:
         make_article(article_id="a3", content_hash="contenthash-a3"),
     ]
 
-    results = ArticleAnalyzer(client).analyze_all(
+    results = ArticleAnalyzer(client, concurrency=1).analyze_all(
         articles, {"wire": make_source()}, manifest=manifest, now=NOW
     )
 
@@ -430,3 +477,155 @@ def test_analyze_all_returns_pairs_in_input_order() -> None:
     )
 
     assert [article.article_id for article, _ in results] == ["a0", "a1", "a2", "a3"]
+
+
+# --------------------------------------------------------------------------- #
+# concurrency — several assessments at once, none of it visible downstream
+# --------------------------------------------------------------------------- #
+
+
+class PacedAnalyzerClient:
+    """Answers by article title, taking a scripted amount of time to do it.
+
+    Sleeps are milliseconds, and they exist only to force completion order to
+    disagree with input order -- never to imitate a real six-second call.
+    """
+
+    def __init__(
+        self, delays: dict[str, float] | None = None, refuse: set[str] | None = None
+    ) -> None:
+        self.model = "gpt-4.1-mini"
+        self.delays = delays or {}
+        self.refuse = refuse or set()
+        self._lock = threading.Lock()
+        self._active = 0
+        self.peak = 0
+        self.completed: list[str] = []
+
+    def parse(self, *, instructions: str, content: str, schema: Any) -> tuple[Any, int]:
+        title = next(
+            line.removeprefix("title: ")
+            for line in content.splitlines()
+            if line.startswith("title: ")
+        )
+        with self._lock:
+            self._active += 1
+            self.peak = max(self.peak, self._active)
+        try:
+            time.sleep(self.delays.get(title, 0.0))
+            if title in self.refuse:
+                raise ModelRefusal(f"declined: {title}")
+            return make_payload(summary=f"Summary of {title}"), 1
+        finally:
+            with self._lock:
+                self._active -= 1
+                self.completed.append(title)
+
+
+def paced_articles(count: int) -> list[NormalizedArticle]:
+    """Articles whose first is the slowest, so completion reverses input order."""
+    return [
+        make_article(
+            article_id=f"a{i}",
+            content_hash=f"contenthash-{i}",
+            title=f"story {i}",
+            canonical_url=f"https://wire.example/story-{i}",
+        )
+        for i in range(count)
+    ]
+
+
+def descending_delays(count: int) -> dict[str, float]:
+    return {f"story {i}": 0.01 * (count - i) for i in range(count)}
+
+
+def test_assessments_run_concurrently_and_still_arrive_in_input_order() -> None:
+    articles = paced_articles(6)
+    client = PacedAnalyzerClient(delays=descending_delays(6))
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+
+    results = ArticleAnalyzer(client, concurrency=6).analyze_all(
+        articles, {"wire": make_source()}, manifest=manifest, now=NOW
+    )
+
+    assert [article.article_id for article, _ in results] == [f"a{i}" for i in range(6)]
+    assert client.peak > 1  # the calls really did overlap
+    assert client.completed != [f"story {i}" for i in range(6)]  # and finished out of order
+    assert manifest.llm_calls == 6
+
+
+def test_failures_are_recorded_in_input_order_not_completion_order() -> None:
+    """AC9 reaches the manifest too: a run's error list must not be a race log."""
+    articles = paced_articles(5)
+    # story 1 is the slowest of the two failures, so it completes last...
+    client = PacedAnalyzerClient(
+        delays={"story 1": 0.08, "story 3": 0.0}, refuse={"story 1", "story 3"}
+    )
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+
+    results = ArticleAnalyzer(client, concurrency=5).analyze_all(
+        articles, {"wire": make_source()}, manifest=manifest, now=NOW
+    )
+
+    assert [article.article_id for article, _ in results] == ["a0", "a2", "a4"]
+    # ... and is still recorded first, because the manifest is written by the
+    # calling thread walking the input from front to back.
+    assert [error.message for error in manifest.errors] == [
+        "declined: story 1",
+        "declined: story 3",
+    ]
+    assert all(error.stage is PipelineStage.ANALYZE for error in manifest.errors)
+
+
+class MainThreadOnlyCache:
+    """Stands in for SQLite, whose connections belong to the thread that opened them."""
+
+    def __init__(self) -> None:
+        self.owner = threading.get_ident()
+        self.saved: list[str | None] = []
+
+    def _assert_owner(self) -> None:
+        if threading.get_ident() != self.owner:
+            raise RuntimeError("the assessment cache was used from a worker thread")
+
+    def get_assessment(self, cache_key: str) -> AssessmentRecord | None:
+        self._assert_owner()
+        return None
+
+    def save_assessment(self, record: AssessmentRecord, *, article_id: str | None = None) -> None:
+        self._assert_owner()
+        self.saved.append(article_id)
+
+
+def test_the_cache_is_only_ever_touched_by_the_calling_thread() -> None:
+    articles = paced_articles(8)
+    cache = MainThreadOnlyCache()
+    analyzer = ArticleAnalyzer(PacedAnalyzerClient(delays=descending_delays(8)), cache=cache)
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+
+    analyzer.analyze_all(articles, {"wire": make_source()}, manifest=manifest, now=NOW)
+
+    assert cache.saved == [f"a{i}" for i in range(8)]  # written in input order
+
+
+def test_concurrency_changes_the_wall_clock_and_nothing_else() -> None:
+    """The escape hatch is also the proof: 1 and 8 must agree exactly."""
+    articles = paced_articles(8)
+    refuse = {"story 2", "story 5"}
+    runs = []
+    for concurrency in (1, 8):
+        manifest = RunManifest(run_id="r1", started_at=NOW)
+        results = ArticleAnalyzer(
+            PacedAnalyzerClient(delays=descending_delays(8), refuse=refuse),
+            concurrency=concurrency,
+        ).analyze_all(articles, {"wire": make_source()}, manifest=manifest, now=NOW)
+        runs.append(
+            (
+                [(article.article_id, record.model_dump_json()) for article, record in results],
+                [error.model_dump(exclude={"timestamp"}) for error in manifest.errors],
+                (manifest.llm_calls, manifest.llm_cache_hits),
+            )
+        )
+
+    assert runs[0] == runs[1]
+    assert runs[0][2] == (6, 0)

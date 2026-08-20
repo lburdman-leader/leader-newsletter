@@ -115,14 +115,23 @@ def edition(selection: SelectionResult):
     return build_edition(selection, SETTINGS, WINDOW, now=NOW)
 
 
+#: The address the reader call to action points at, shared with
+#: scripts/refresh_expected_edition.py so the golden edition carries it too.
+SUBMIT_URL = "https://intake.example/submit"
+
+
 @pytest.fixture
 def html(edition) -> str:
-    return render_html(edition, tagline="Platform, model and monetization intelligence")
+    return render_html(
+        edition,
+        tagline="Platform, model and monetization intelligence",
+        submit_url=SUBMIT_URL,
+    )
 
 
 @pytest.fixture
 def markdown(edition) -> str:
-    return render_markdown(edition)
+    return render_markdown(edition, submit_url=SUBMIT_URL)
 
 
 def make_payload(**overrides: Any) -> EditorialPayload:
@@ -428,6 +437,38 @@ def test_a_bracket_in_a_headline_cannot_break_the_link(selection: SelectionResul
     polish = usable_polish(payload, [r.article.article_id for r in selection.selected])
     markdown = render_markdown(build_edition(selection, SETTINGS, WINDOW, polish=polish, now=NOW))
     assert "### [Model \\[v2\\] ships](https://news.example/story-1)" in markdown
+
+
+# --------------------------------------------------------------------------- #
+# the reader call to action
+# --------------------------------------------------------------------------- #
+
+
+def test_the_call_to_action_links_to_the_configured_form(html: str, markdown: str) -> None:
+    """The one link in the edition that does not come from ingestion."""
+    assert (
+        f'<a href="{SUBMIT_URL}" target="_blank" rel="noopener noreferrer">'
+        "Enviar un enlace &rarr;</a>" in html
+    )
+    assert f"[Enviar un enlace →]({SUBMIT_URL})" in markdown
+
+
+@pytest.mark.parametrize("configured", [None, "", "   "])
+def test_no_call_to_action_is_printed_without_a_form(edition, configured: str | None) -> None:
+    """An intake nobody can reach must leave no dangling text behind."""
+    html = render_html(edition, submit_url=configured)
+    markdown = render_markdown(edition, submit_url=configured)
+
+    assert '<aside class="submit-cta">' not in html
+    assert "Enviar un enlace" not in html
+    assert "¿Viste algo" not in html
+    assert "Enviar un enlace" not in markdown
+
+
+@pytest.mark.parametrize("hostile", ["javascript:alert(1)", "/relative/path", "not a url"])
+def test_a_call_to_action_that_is_not_a_public_url_stops_the_render(edition, hostile: str) -> None:
+    with pytest.raises(RenderError, match="submission form URL"):
+        render_html(edition, submit_url=hostile)
 
 
 # --------------------------------------------------------------------------- #

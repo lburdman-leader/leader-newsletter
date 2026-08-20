@@ -78,6 +78,7 @@ src/newsletter/
   models.py           enums + domain models; owns the URL and timezone invariants
   config.py           strict YAML loading, environment overrides, ConfigError
   context.py          RunContext: run id, window, manifest, edition directory
+  concurrency.py      bounded thread pool that returns results in input order
   logging_setup.py    stderr diagnostics + stdout run narrative
   cli.py              run / validate / sources
 ```
@@ -146,6 +147,13 @@ order:
 
 Every one of those paths writes a `RunError` into the `RunManifest`. Nothing is dropped
 silently.
+
+**Concurrency (ADR-0037).** `ingest_source` fetches up to `runtime.fetch_concurrency`
+articles of one source at once (default 6, the per-host budget a browser allows itself);
+sources themselves stay sequential, so `sources_attempted` / `sources_succeeded` /
+`sources_failed` remain the product of a loop rather than of a race. Results are read back
+in discovery order and every failure is recorded from the calling thread, so the fetched
+sequence and the manifest are the same as at one request at a time. `1` is that.
 
 **Dates.** A known date outside the window drops the candidate; an unreadable date keeps
 it with `published_at_hint = None` for Stage 3 to resolve (ADR-0013).
@@ -231,11 +239,20 @@ stays inside the block.
 **Retries** (ADR-0018). The SDK is built with `max_retries=0`; the wrapper owns one
 budget. Timeout / connection / rate-limit / 5xx retry with exponential backoff; refusal,
 auth, permission and bad-request fail immediately. Exhaustion raises a typed
-`ModelTimeout` or `ModelUnavailable`, which `analyze_all` records per article.
+`ModelTimeout` or `ModelUnavailable`, which `analyze_all` records per article. A rate limit
+additionally honours the server's `Retry-After` (capped at 30s) and jitters the wait, so a
+batch of concurrent calls throttled together does not come back in lockstep (ADR-0037).
 
 **Cache.** Identity is `content_hash:prompt_version:schema_version:model`. A cache hit
 skips the call entirely and increments `llm_cache_hits`; a prompt edit invalidates every
 judgment it produced, while the old records stay in the database for audit.
+
+**Concurrency (ADR-0037).** `analyze_all` runs up to `runtime.analysis_concurrency` model
+calls at once (default 8) in three phases: cache reads on the calling thread, the model
+call and nothing else in the workers, then manifest, cache writes and results back on the
+calling thread in input order. The thread boundary sits *before* the database on purpose —
+a SQLite connection belongs to the thread that opened it — and the ordering rules live in
+`newsletter/concurrency.py`, so completion order never reaches an artifact.
 
 ## Scoring and selection (implemented — Stage 5)
 

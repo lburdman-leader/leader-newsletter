@@ -8,6 +8,9 @@
 **Stage 8 — automation, CI, final quality pass — COMPLETE**
 **Stage 9 — reader submissions — COMPLETE** (added scope, requested during Stage 8)
 **Stage 10 — Spanish edition for Leader Entertainment — COMPLETE** (added scope)
+**Stage 11 — reader intake from the edition itself — COMPLETE** (added scope, ADR-0036)
+**Stage 12 — run time: bounded concurrency in the two waiting stages — COMPLETE**
+(added scope, ADR-0037)
 
 The engine has run live against real sources and a real key, and now publishes in Spanish
 for a named audience (ADR-0032). What remains is editorial judgment over time, not build
@@ -28,6 +31,8 @@ work.
 | 8 | Automation, CI, final quality pass | complete | 2026-08-18 |
 | 9 | Reader submissions (added scope) | complete | 2026-08-18 |
 | 10 | Spanish edition, audience rubric (added scope) | complete | 2026-08-19 |
+| 11 | Reader intake: CTA in the edition + `serve` (added scope) | complete | 2026-08-20 |
+| 12 | Bounded concurrency for analysis and fetching (added scope) | complete | 2026-08-20 |
 
 ## Current objective
 
@@ -48,6 +53,29 @@ Entertainment — a Latin American children's YouTube company moving into AI pro
    edition cannot distinguish a bad threshold from a slow news week.
 
 ## Last successful validation
+
+`2026-08-20` — full gate after bounded concurrency (ADR-0037):
+
+| Check | Result |
+|-------|--------|
+| `ruff check .` / `ruff format --check .` | pass (72 files formatted) |
+| `python -m pytest` | **668 passed** (was 645; +23 for concurrency and its ordering proofs) |
+| `python scripts/validate_repo.py` | OK, 9 checks, 0 warnings (72 files) |
+| `python -m newsletter validate` | valid, 15 sources (14 enabled) |
+| artifacts at concurrency 1 vs 8 | byte-identical (html, md, json); manifest errors in the same order |
+| golden edition | unchanged — not regenerated, not touched |
+| measured (fake client, real latencies) | analysis 720.1s → 90.0s (8.00x); fetch 144.1s → 24.1s (5.99x) |
+
+`2026-08-20` — full gate after the reader intake (ADR-0036):
+
+| Check | Result |
+|-------|--------|
+| `ruff check .` / `ruff format --check .` | pass (69 files formatted) |
+| `python -m pytest` | **645 passed** (was 610; +35 for the intake) |
+| `python scripts/validate_repo.py` | OK, 9 checks, 0 warnings |
+| `python -m newsletter validate` | valid, 15 sources (14 enabled) |
+| golden edition | regenerated; the only diff is the call to action and its CSS |
+| `newsletter serve`, live | form served, submission stored, hostile name escaped in the reply |
 
 `2026-08-19` — full gate after the entity-fidelity guard (ADR-0033):
 
@@ -101,6 +129,7 @@ src/newsletter/
     prompts/article_analyzer_v{1,2}.md, prompts/newsletter_editor_v{1,2}.md  (v2 live)
   pipeline.py               the state machine: one run, injectable collaborators
   ingestion/submissions.py  reader-submission gate, adapter and identity
+  web/app.py                the submission form as a WSGI callable (no framework)
   rendering/
     renderer.py             link validation, Jinja env, artifact writing
     templates/newsletter.html.j2, templates/newsletter.md.j2
@@ -184,7 +213,13 @@ Pins tightened to what was exercised: `openai>=3.0,<4`, `scrapling>=0.4,<0.5` (A
 
 - The `scrapling_dynamic` / `scrapling_stealth` paths have no browser implementation yet,
   only the injection point and a test proving the point works. Implement when a source
-  actually needs it (ADR-0012).
+  actually needs it (ADR-0012). Whoever writes that `page_loader` must make it thread-safe
+  or set `fetch_concurrency: 1`, because `fetch` is now called from several threads
+  (ADR-0037).
+- **Eight concurrent model calls have never met a real rate limit.** The retry budget is
+  unchanged and the wait is now jittered, but if a live run starts losing articles to
+  `ModelUnavailable`, the two dials are `runtime.analysis_concurrency` (lower it) and
+  `runtime.max_retries` (raise it) — neither needs a code change (ADR-0037).
 - Selectors for the two disabled scraping sources are placeholders, documented in
   `config/sources.yaml` but not verified against the live DOM.
 

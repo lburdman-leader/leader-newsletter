@@ -107,6 +107,13 @@ submissions:
   require_https: true
   blocked_hosts: []
 
+  # Where readers propose a link from the edition itself. `python -m newsletter
+  # serve` answers on http://127.0.0.1:8765/submit; set this to whatever address
+  # that server is reachable at for the people who read the newspaper. While it
+  # is empty the edition prints no call to action, because an intake nobody can
+  # reach is worse than no invitation.
+  form_url: "http://127.0.0.1:8765/submit"
+
   # A post is usually a pointer rather than the story. Below min_text_chars of
   # readable text, the page's own outbound link is followed and what it points
   # at is attached for the analyst to judge. Python picks the link from the
@@ -118,7 +125,8 @@ submissions:
 
 # Defaults for values that the environment may override
 # (OPENAI_API_KEY, OPENAI_ANALYZER_MODEL, OPENAI_EDITOR_MODEL,
-#  NEWSLETTER_DB_PATH, NEWSLETTER_OUTPUT_DIR, LOG_LEVEL).
+#  NEWSLETTER_DB_PATH, NEWSLETTER_OUTPUT_DIR, LOG_LEVEL,
+#  NEWSLETTER_ANALYSIS_CONCURRENCY, NEWSLETTER_FETCH_CONCURRENCY).
 runtime:
   db_path: "newsletter.sqlite"
   output_dir: "output"
@@ -127,3 +135,9 @@ runtime:
   log_level: "INFO"
   request_timeout_seconds: 60
   max_retries: 2
+  # How much of the run happens at once. Both stages are network-bound and
+  # ordered afterwards, so raising these changes only how long a run takes --
+  # never what it publishes. Set either to 1 to go back to one call at a time.
+  analysis_concurrency: 8
+  # Lower, because these requests all land on one origin at a time.
+  fetch_concurrency: 6

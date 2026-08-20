@@ -1090,3 +1090,123 @@ the tripwire. The manifest, not the edition, is where an operator sees it first.
 
 **Not changed.** No prompt, no schema version, no `min_score`, no score formula; the v2
 assessment cache stays valid.
+
+## 2026-08-20 · ADR-0036 · The edition invites submissions, and the intake is a WSGI app with no framework
+
+**Decision.** The whole submission loop is reachable from the newspaper. A new
+`submissions.form_url` (default `None`, validated as a public http/https URL at config load)
+is threaded to both renderers — `render_html(..., submit_url=)` and
+`render_markdown(..., submit_url=)`, the same channel `tagline` already uses — and prints a
+call to action in the colophon area, `target="_blank" rel="noopener noreferrer"`. Unset, no
+call to action is rendered at all. `newsletter serve` answers that address: `GET /submit`
+returns a self-contained form with three fields (full name, link, optional description),
+`POST /submit` builds the submission through the existing `create_submission` gate and saves
+it through the `Storage` protocol as `pending`, which the next run reads.
+
+**Why WSGI, not a framework.** `newsletter/web/app.py` is a plain callable.
+`wsgiref.simple_server` runs it locally with **zero new dependencies**, and
+`gunicorn newsletter.web.app:application` runs the identical object on a real server without
+a rewrite. Storage is resolved through `create_storage(config.runtime.database_url)`, never a
+concrete backend, so the form writes to whichever database the pipeline reads.
+
+**One connection per request.** SQLite connections belong to the thread that opened them and
+every real WSGI server is threaded, so a process-lifetime connection would be a latent
+cross-thread bug; a dropped server connection would also outlive its request. A form that
+sees a submission a day cannot notice the cost.
+
+**Every field is hostile (rule 3).** The URL passes through `check_submitted_url` — https,
+host blocklist, and the SSRF address guard — unchanged, because that gate is why it exists.
+The name and description are echoed back on the result page, so all text reaching a page goes
+through `html.escape(..., quote=True)` in one place, and the model's own limits (80, 500) are
+enforced by `create_submission` rather than the form's `maxlength`. The body size is checked
+against `Content-Length` *before* `wsgi.input` is read at all: an oversized request costs a
+header parse, not 8 MB of buffer. Responses carry a `default-src 'none'` CSP and `nosniff`;
+an unexpected exception is logged in full and answered with a generic 500, because a
+traceback can carry a path or a DSN.
+
+**Localhost by default, and that is the security model.** The form authenticates nobody:
+whoever reaches it can queue a link — which is the point, since a submission buys
+consideration and not publication — but it also means exposure is an explicit deployment
+decision, taken behind a real server. `--host` says so in its help text and a non-loopback
+binding prints a warning at startup.
+
+**Not changed.** No prompt, no schema version, no `min_score`, no score formula, no new
+runtime dependency; the v2 assessment cache stays valid. The golden edition changed by
+exactly the call to action.
+
+## 2026-08-20 · ADR-0037 · The two stages that only wait now wait in parallel, and the order is restored before anything can see it
+
+**The measurement, not a hunch.** A real edition took **8:51**. Analysis was **5:58** of
+it — 62 OpenAI calls issued strictly one after another, median 6.0s each, mean 6.1s, max
+15s — and ingestion **2:24** over roughly 145 sequential fetches. Everything deterministic
+(filter, dedupe, score, select, render) came to about 30s. Both slow stages were waiting on
+a network, not computing anything, and nothing about either requires a queue of one.
+
+**Decision.** `ArticleAnalyzer.analyze_all` and `ingest_source` hand their independent work
+to a `concurrent.futures.ThreadPoolExecutor` bounded by configuration:
+`runtime.analysis_concurrency` (default **8**) and `runtime.fetch_concurrency` (default
+**6** — lower, because fetch parallelism is *within* one source and every one of those
+requests lands on the same origin). Both accept `1`, which runs the work inline in a plain
+loop with no pool and no thread: the exact sequential behaviour they replaced, kept as the
+escape hatch and used by the tests as the baseline to compare against. Both are rejected
+with `ConfigError` outside 1-32 and 1-16, whether they come from YAML or from
+`NEWSLETTER_ANALYSIS_CONCURRENCY` / `NEWSLETTER_FETCH_CONCURRENCY`.
+
+**The thread boundary sits in front of the database.** A SQLite connection belongs to the
+thread that opened it, and the assessment cache *is* the database, so a worker does the
+model call and nothing else. `analyze_all` runs in three phases: cache reads on the calling
+thread, splitting the batch into hits and misses; the misses' model calls in the pool;
+then, back on the calling thread and walking the input from front to back, the manifest
+errors, the cache writes, the call counts and the returned pairs. The one deliberate
+reordering is that all cache reads now precede all cache writes; the cache key contains the
+content hash and deduplication has already made those unique within a run, so no read can
+be answered by a write that used to precede it.
+
+**Order is restored, never observed** (AC9). `newsletter/concurrency.py` is the single
+place that knows how: work is submitted with its position and read back by position. There
+is no `as_completed`, no set iteration, no dependence on dict insertion order. Manifest
+errors are the same story — a worker never touches the manifest; failures travel back as
+values in their slots and are recorded by the calling thread in input order, so a run's
+error list is a walk over the input rather than a race log. An integration test runs the
+whole fixture pipeline at 1 and at 8 and compares the three artifacts byte for byte, and
+the golden edition test never changed.
+
+**Failure isolation is unchanged** (rule 7). Only exception types the caller names are
+turned into values — `ModelError` for analysis, `AdapterError` / `HttpError` for fetching.
+Anything else propagates once the pool has drained, from the earliest failing position, so
+a bug is still a loud failure and never a quietly skipped article.
+
+**What this asks of an adapter.** `fetch` must be callable from several threads at once.
+Every adapter shipped today qualifies: state is built in `__init__` and `discover`, and
+`fetch` only reads it, while the transport builds a fresh request per call. The one place
+this could stop being true is the browser `page_loader` injection point in
+`scrapling.py` (ADR-0012), which has no implementation yet — whoever writes it either makes
+it thread-safe or sets `fetch_concurrency: 1`.
+
+**Rate limits, because eight callers hit one now** (extends ADR-0018). The retry budget is
+untouched. What changed is the wait before a retry, and only for a rate limit: the server's
+`Retry-After` is honoured when it asks for longer than our own backoff, capped at 30s
+because a header is a hint and a run must not be parked for an hour, and a random share of
+up to half the delay is added on top so a batch throttled together does not march back in
+step and spend the whole budget colliding. Timing only: what is sent, what comes back and
+in which order are all unaffected.
+
+**Measured, with a fake client sleeping the latency a real run showed** — 6.0s per model
+call over 120 articles, 1.0s per fetch over 8 sources x 18 articles
+(`scripts/benchmark_concurrency.py`):
+
+| Stage | Sequential | Concurrent | Speedup |
+|-------|-----------|------------|---------|
+| analysis, 120 calls | 720.1s (12m00s) at 1 | 90.0s (1m30s) at 8 | **8.00x** |
+| fetch, 144 articles | 144.1s (2m24s) at 1 | 24.1s (0m24s) at 6 | **5.99x** |
+
+Applied to the run that was actually observed: analysis 5:58 → about 48s, ingestion 2:24 →
+about 40s (less than 6x, because discovery stays sequential and sources hold uneven numbers
+of articles), the deterministic ~30s unchanged. **8:51 → roughly two minutes**, at which
+point the deterministic stages are the largest share of a run and the next optimisation
+would be a different one.
+
+**Not changed.** No prompt, no schema version, no `min_score`, no score formula, no new
+runtime dependency (`concurrent.futures` is the standard library); the v2 assessment cache
+stays valid, and the same stored inputs still produce the same artifacts, byte for byte.
+

@@ -13,6 +13,12 @@ The second responsibility of this module is failure isolation. A broken source
 must not stop the edition (AC10), so :func:`ingest_all` catches per-source and
 per-article failures, records each one in the run manifest, and continues. It
 never swallows an error silently.
+
+Fetching is the third: an article is a single HTTP round trip that spends its
+time waiting, so :func:`ingest_source` runs a bounded number of them at once. The
+concurrency stops there — sources are still ingested one at a time, in order, so
+the manifest's per-source accounting stays a plain sequence of attempts, and a
+source is never asked for more connections than a browser would open to it.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+from newsletter.concurrency import DEFAULT_FETCH_CONCURRENCY, map_ordered
 from newsletter.ingestion.http import HttpClient, HttpError
 from newsletter.logging_setup import get_logger
 from newsletter.models import (
@@ -185,11 +192,17 @@ def ingest_source(
     window: DateWindow,
     *,
     manifest: RunManifest,
+    concurrency: int = DEFAULT_FETCH_CONCURRENCY,
 ) -> SourceOutcome:
     """Discover and fetch one source, isolating per-article failures.
 
     A discovery failure fails the source. An individual article failure is
     recorded and skipped -- the remaining articles of that source still count.
+
+    Up to ``concurrency`` articles are fetched at once, but the results are read
+    back in discovery order and the failures are recorded from this thread, so
+    both the fetched sequence and the manifest are the same as they would be one
+    request at a time. ``concurrency=1`` is exactly that.
     """
     source_id = adapter.source.id
     outcome = SourceOutcome(source_id=source_id)
@@ -206,12 +219,20 @@ def ingest_source(
     outcome.candidates = candidates
     logger.info("%s: discovered %d candidates", source_id, len(candidates))
 
-    for candidate in candidates:
-        try:
-            outcome.fetched.append(adapter.fetch(candidate))
-        except (AdapterError, HttpError) as exc:
-            manifest.record_error(PipelineStage.FETCH, exc, source_id=source_id)
-            logger.warning("fetch failed for %s (%s): %s", source_id, candidate.url, exc)
+    fetches = map_ordered(
+        adapter.fetch,
+        candidates,
+        concurrency=concurrency,
+        capture=(AdapterError, HttpError),
+        thread_name_prefix=f"fetch-{source_id}",
+    )
+    for candidate, fetched in zip(candidates, fetches, strict=True):
+        if fetched.error is not None:
+            manifest.record_error(PipelineStage.FETCH, fetched.error, source_id=source_id)
+            logger.warning("fetch failed for %s (%s): %s", source_id, candidate.url, fetched.error)
+            continue
+        assert fetched.value is not None
+        outcome.fetched.append(fetched.value)
 
     return outcome
 
@@ -222,12 +243,18 @@ def ingest_all(
     *,
     manifest: RunManifest,
     adapter_factory: AdapterFactory | None = None,
+    concurrency: int = DEFAULT_FETCH_CONCURRENCY,
 ) -> IngestionResult:
     """Ingest every source in order, isolating failures, updating the manifest.
 
     Source order is the caller's (``AppConfig.enabled_sources`` is already
     deterministic), and article order within a source is preserved, so a repeated
     run over identical inputs produces an identical article sequence.
+
+    ``concurrency`` applies *within* a source. Sources themselves stay sequential:
+    overlapping them would buy little — discovery is one request each — while
+    making ``sources_attempted`` / ``sources_succeeded`` / ``sources_failed`` the
+    product of a race rather than of a loop.
     """
     factory: AdapterFactory = adapter_factory or build_adapter
     result = IngestionResult()
@@ -243,7 +270,7 @@ def ingest_all(
             result.outcomes.append(SourceOutcome(source_id=source.id, failed=True, reason=str(exc)))
             continue
 
-        outcome = ingest_source(adapter, window, manifest=manifest)
+        outcome = ingest_source(adapter, window, manifest=manifest, concurrency=concurrency)
         result.outcomes.append(outcome)
         result.raw_articles.extend(outcome.fetched)
 

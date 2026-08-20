@@ -12,10 +12,18 @@ switched off or never offered:
 Retries are bounded and typed: transient transport problems are retried with
 backoff, while refusals and client errors fail immediately, because retrying
 them would only burn tokens.
+
+Rate limits get two extras, because several assessments are now in flight at once
+(see ``newsletter.concurrency``) and a limit reached by one of them has usually
+been reached by all of them: the server's own ``Retry-After`` is honoured when it
+sends one, and the wait is jittered so the batch does not march back in step and
+spend its whole retry budget colliding. Only the *timing* of a retry changes;
+what is sent, and what comes back, does not.
 """
 
 from __future__ import annotations
 
+import random
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -34,6 +42,15 @@ DEFAULT_TIMEOUT_SECONDS = 60.0
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS = 2.0
 DEFAULT_MAX_OUTPUT_TOKENS = 2000
+
+#: Fraction of the computed delay added, at random, before retrying a rate limit.
+#: Enough to break up a batch that hit the limit together; small enough that the
+#: retry budget still means what it says.
+RATE_LIMIT_JITTER = 0.5
+
+#: Longest ``Retry-After`` we will honour. A header is a hint from a server, not
+#: an instruction, and a run must not be parked for an hour by a stray value.
+MAX_RETRY_AFTER_SECONDS = 30.0
 
 
 class ModelError(Exception):
@@ -95,6 +112,7 @@ class StructuredClient:
         backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
         max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
         sleeper: Callable[[float], None] = time.sleep,
+        jitter: Callable[[], float] = random.random,
     ) -> None:
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
@@ -105,6 +123,7 @@ class StructuredClient:
         self.backoff_seconds = backoff_seconds
         self.max_output_tokens = max_output_tokens
         self._sleep = sleeper
+        self._jitter = jitter
 
     def parse(
         self,
@@ -144,7 +163,7 @@ class StructuredClient:
                 last_transient = exc
                 if attempt >= self.max_attempts:
                     break
-                delay = self.backoff_seconds * (2 ** (attempt - 1))
+                delay = self.retry_delay(exc, attempt)
                 logger.warning(
                     "transient model failure (attempt %d/%d): %s; retrying in %.1fs",
                     attempt,
@@ -182,6 +201,48 @@ class StructuredClient:
         raise ModelUnavailable(
             f"failed after {self.max_attempts} attempt(s): {last_transient}"
         ) from last_transient
+
+    def retry_delay(self, exc: Exception, attempt: int) -> float:
+        """How long to wait before ``attempt + 1``.
+
+        Exponential backoff for everything, plus, for a rate limit only: the
+        server's ``Retry-After`` when it is at least as long as our own wait, and
+        a random share of the total on top. The jitter is what stops a batch of
+        concurrent calls from being throttled in lockstep and burning the whole
+        retry budget on the same collision; it changes when a request is sent and
+        never what is sent, so no artifact depends on it.
+        """
+        delay = self.backoff_seconds * (2 ** (attempt - 1))
+        if not isinstance(exc, openai.RateLimitError):
+            return delay
+
+        hinted = retry_after_seconds(exc)
+        if hinted is not None:
+            delay = max(delay, min(hinted, MAX_RETRY_AFTER_SECONDS))
+        return delay * (1.0 + RATE_LIMIT_JITTER * self._jitter())
+
+
+def retry_after_seconds(exc: Exception) -> float | None:
+    """Seconds from a ``Retry-After`` header, or None when there is nothing usable.
+
+    Only the delta-seconds form is read. The HTTP-date form is legal but rare
+    here, and parsing it would mean trusting our clock against theirs; falling
+    back to our own backoff is the safer answer.
+    """
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    if headers is None:
+        return None
+    try:
+        raw = headers.get("retry-after")
+    except (AttributeError, TypeError):  # pragma: no cover - defensive
+        return None
+    if raw is None:
+        return None
+    try:
+        seconds = float(str(raw).strip())
+    except ValueError:
+        return None
+    return seconds if seconds > 0 else None
 
 
 def extract_refusal(response: Any) -> str | None:

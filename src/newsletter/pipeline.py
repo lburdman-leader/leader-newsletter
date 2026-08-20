@@ -111,6 +111,7 @@ def build_analyzer(config: AppConfig, cache: Storage | None) -> ArticleAnalyzer:
             max_attempts=config.runtime.max_retries + 1,
         ),
         cache=cache,
+        concurrency=config.runtime.analysis_concurrency,
     )
 
 
@@ -290,7 +291,13 @@ def run_pipeline(
 
     # -- discover + fetch --------------------------------------------------- #
     factory = _with_submissions(adapter_factory, submission_adapter)
-    ingestion = ingest_all(sources, window, manifest=manifest, adapter_factory=factory)
+    ingestion = ingest_all(
+        sources,
+        window,
+        manifest=manifest,
+        adapter_factory=factory,
+        concurrency=config.runtime.fetch_concurrency,
+    )
     report(f"{ingestion.discovered} articles discovered")
     for outcome in ingestion.failed:
         report_failure(f"source {outcome.source_id} failed: {outcome.reason}")
@@ -434,6 +441,7 @@ def run_pipeline(
             ranked=selection.selected,
             manifest=manifest,
             tagline=config.newsletter.tagline,
+            submit_url=config.submissions.form_url,
             allowed_urls=allowed,
         )
     except RenderError as exc:

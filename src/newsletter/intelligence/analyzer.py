@@ -11,6 +11,12 @@ Caching is part of the contract, not an optimisation bolted on: identity is
 ``content_hash + prompt_version + schema_version + model``, so re-running a week
 costs nothing, while editing the prompt correctly invalidates every judgment it
 produced.
+
+Assessments are independent of one another, so :meth:`ArticleAnalyzer.analyze_all`
+issues several at once. The thread boundary is drawn tightly around the model call
+and nothing else: the cache is a database handle, and a SQLite connection belongs
+to the thread that opened it, so every read and every write happens on the calling
+thread, in input order.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
 
+from newsletter.concurrency import DEFAULT_ANALYSIS_CONCURRENCY, Outcome, map_ordered
 from newsletter.intelligence.client import ModelContractError, ModelError, StructuredClient
 from newsletter.intelligence.schemas import (
     ASSESSMENT_SCHEMA_VERSION,
@@ -29,6 +36,7 @@ from newsletter.intelligence.schemas import (
 )
 from newsletter.logging_setup import get_logger
 from newsletter.models import (
+    ArticleAssessment,
     AssessmentRecord,
     NormalizedArticle,
     PipelineStage,
@@ -116,11 +124,15 @@ class ArticleAnalyzer:
         cache: AssessmentCache | None = None,
         prompt_version: str = ANALYZER_PROMPT_VERSION,
         schema_version: str = ASSESSMENT_SCHEMA_VERSION,
+        concurrency: int = DEFAULT_ANALYSIS_CONCURRENCY,
     ) -> None:
+        if concurrency < 1:
+            raise ValueError("concurrency must be at least 1")
         self.client = client
         self.cache = cache
         self.prompt_version = prompt_version
         self.schema_version = schema_version
+        self.concurrency = concurrency
         self.instructions = load_prompt(prompt_version)
 
     @property
@@ -154,18 +166,46 @@ class ArticleAnalyzer:
                     manifest.llm_cache_hits += 1
                 return cached
 
+        assessment, attempts = self._assess(article, source)
+        record = self._record(article, assessment, now=now)
+
+        if manifest is not None:
+            manifest.llm_calls += 1
+        if self.cache is not None:
+            self.cache.save_assessment(record, article_id=article.article_id)
+
+        self._log_assessed(article, assessment, attempts)
+        return record
+
+    # -- the thread boundary ------------------------------------------------ #
+
+    def _assess(
+        self, article: NormalizedArticle, source: SourceConfig
+    ) -> tuple[ArticleAssessment, int]:
+        """The model call and its validation, and deliberately nothing else.
+
+        This is the only part of an assessment that may run off the main thread:
+        it touches no cache, no manifest and no shared mutable state, so it is
+        safe to run several at once. Raises :class:`ModelError`.
+        """
         payload, attempts = self.client.parse(
             instructions=self.instructions,
             content=build_content(article, source),
             schema=AssessmentPayload,
         )
-
         try:
-            assessment = payload.to_assessment()
+            return payload.to_assessment(), attempts
         except SchemaViolation as exc:
             raise ModelContractError(f"[{article.article_id}] {exc}") from exc
 
-        record = AssessmentRecord(
+    def _record(
+        self,
+        article: NormalizedArticle,
+        assessment: ArticleAssessment,
+        *,
+        now: datetime | None,
+    ) -> AssessmentRecord:
+        return AssessmentRecord(
             assessment=assessment,
             content_hash=article.content_hash,
             model=self.model,
@@ -174,11 +214,10 @@ class ArticleAnalyzer:
             created_at=now or datetime.now(UTC),
         )
 
-        if manifest is not None:
-            manifest.llm_calls += 1
-        if self.cache is not None:
-            self.cache.save_assessment(record, article_id=article.article_id)
-
+    @staticmethod
+    def _log_assessed(
+        article: NormalizedArticle, assessment: ArticleAssessment, attempts: int
+    ) -> None:
         logger.info(
             "analyzed %s as %s (attempts=%d, confidence=%.2f)",
             article.article_id,
@@ -186,7 +225,6 @@ class ArticleAnalyzer:
             attempts,
             assessment.confidence,
         )
-        return record
 
     def analyze_all(
         self,
@@ -200,11 +238,60 @@ class ArticleAnalyzer:
 
         One article that the model cannot assess must not cost the edition every
         other story, so the failure is recorded and the run continues.
-        """
-        results: list[tuple[NormalizedArticle, AssessmentRecord]] = []
 
-        for article in articles:
+        The work runs in three phases, and the split is what keeps concurrency out
+        of the artifacts and out of the database:
+
+        1. **Main thread.** Resolve each article's source and read the assessment
+           cache, splitting the batch into hits and misses.
+        2. **Workers.** Only the misses, and only the model call itself, up to
+           ``self.concurrency`` at a time.
+        3. **Main thread, in input order.** Record failures on the manifest, write
+           new assessments to the cache, count the calls, and return the pairs.
+
+        So the manifest, the cache and the returned order are all produced by one
+        thread walking the input from front to back, exactly as before.
+        """
+        ordered = list(articles)
+
+        # -- phase 1: cache reads, on this thread, because the cache is a database
+        sources: list[SourceConfig | None] = []
+        cached: list[AssessmentRecord | None] = []
+        misses: list[int] = []
+        for index, article in enumerate(ordered):
             source = sources_by_id.get(article.source_id)
+            sources.append(source)
+            hit = None
+            if source is not None and self.cache is not None:
+                hit = self.cache.get_assessment(self.cache_key_for(article))
+            cached.append(hit)
+            if source is not None and hit is None:
+                misses.append(index)
+
+        # -- phase 2: the model calls, several at a time, touching nothing shared
+        def assess(index: int) -> tuple[ArticleAssessment, int]:
+            source = sources[index]
+            assert source is not None  # only cache misses with a source are queued
+            return self._assess(ordered[index], source)
+
+        outcomes: list[Outcome[tuple[ArticleAssessment, int]] | None] = [None] * len(ordered)
+        for index, outcome in zip(
+            misses,
+            map_ordered(
+                assess,
+                misses,
+                concurrency=self.concurrency,
+                capture=(ModelError,),
+                thread_name_prefix="analyze",
+            ),
+            strict=True,
+        ):
+            outcomes[index] = outcome
+
+        # -- phase 3: manifest, cache writes and results, in input order
+        results: list[tuple[NormalizedArticle, AssessmentRecord]] = []
+        for index, article in enumerate(ordered):
+            source = sources[index]
             if source is None:  # pragma: no cover - configuration guarantees this
                 manifest.record_error(
                     PipelineStage.ANALYZE,
@@ -212,12 +299,30 @@ class ArticleAnalyzer:
                     source_id=article.source_id,
                 )
                 continue
-            try:
-                record = self.analyze(article, source, manifest=manifest, now=now)
-            except ModelError as exc:
-                manifest.record_error(PipelineStage.ANALYZE, exc, source_id=article.source_id)
-                logger.warning("analysis failed for %s: %s", article.article_id, exc)
+
+            hit = cached[index]
+            if hit is not None:
+                logger.debug("cache hit for %s", article.article_id)
+                manifest.llm_cache_hits += 1
+                results.append((article, hit))
                 continue
+
+            outcome = outcomes[index]
+            assert outcome is not None  # every miss was queued in phase 2
+            if outcome.error is not None:
+                manifest.record_error(
+                    PipelineStage.ANALYZE, outcome.error, source_id=article.source_id
+                )
+                logger.warning("analysis failed for %s: %s", article.article_id, outcome.error)
+                continue
+
+            assert outcome.value is not None
+            assessment, attempts = outcome.value
+            record = self._record(article, assessment, now=now)
+            manifest.llm_calls += 1
+            if self.cache is not None:
+                self.cache.save_assessment(record, article_id=article.article_id)
+            self._log_assessed(article, assessment, attempts)
             results.append((article, record))
 
         return results

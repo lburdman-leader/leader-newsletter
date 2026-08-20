@@ -3,6 +3,8 @@ never stops the others."""
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -288,3 +290,82 @@ def test_source_order_is_preserved(window: DateWindow) -> None:
         adapter_factory=lambda s: StubAdapter(s, urls=[f"https://{s.id}.example/1"]),
     )
     assert [a.source_id for a in result.raw_articles] == ["charlie", "alpha", "bravo"]
+
+
+# --------------------------------------------------------------------------- #
+# fetching several articles of a source at once, invisibly
+# --------------------------------------------------------------------------- #
+
+
+class PacedStubAdapter(StubAdapter):
+    """A stub whose fetches take time, so completion order can disagree with input.
+
+    The sleeps are milliseconds and exist only to force that disagreement; they
+    are not an imitation of real latency.
+    """
+
+    def __init__(self, source: SourceConfig, *, urls: list[str], **kwargs: object) -> None:
+        super().__init__(source, urls=urls, **kwargs)  # type: ignore[arg-type]
+        self.delays = {url: 0.01 * (len(urls) - position) for position, url in enumerate(urls)}
+        self._lock = threading.Lock()
+        self._active = 0
+        self.peak = 0
+        self.completed: list[str] = []
+
+    def fetch(self, article: DiscoveredArticle) -> RawArticle:
+        with self._lock:
+            self._active += 1
+            self.peak = max(self.peak, self._active)
+        try:
+            time.sleep(self.delays.get(article.url, 0.0))
+            return super().fetch(article)
+        finally:
+            with self._lock:
+                self._active -= 1
+                self.completed.append(article.url)
+
+
+def paced_urls(count: int) -> list[str]:
+    return [f"https://alpha.example/{i}" for i in range(count)]
+
+
+def test_articles_of_one_source_are_fetched_at_once_but_kept_in_order(
+    window: DateWindow,
+) -> None:
+    urls = paced_urls(6)
+    adapter = PacedStubAdapter(make_source("alpha"), urls=urls)
+
+    outcome = ingest_source(adapter, window, manifest=manifest(), concurrency=6)
+
+    assert [a.url for a in outcome.fetched] == urls  # discovery order, not finish order
+    assert adapter.peak > 1
+    assert adapter.completed != urls
+
+
+def test_fetch_failures_are_recorded_in_discovery_order(window: DateWindow) -> None:
+    urls = paced_urls(5)
+    # The earlier failure is the slower one, so it finishes after the later one.
+    adapter = PacedStubAdapter(make_source("alpha"), urls=urls, failing_urls={urls[1], urls[3]})
+    run = manifest()
+
+    outcome = ingest_source(adapter, window, manifest=run, concurrency=5)
+
+    assert [a.url for a in outcome.fetched] == [urls[0], urls[2], urls[4]]
+    assert [error.message for error in run.errors] == [
+        f"[alpha] boom on {urls[1]}",
+        f"[alpha] boom on {urls[3]}",
+    ]
+    assert outcome.failed is False  # per-article failures never fail the source
+
+
+def test_a_fetch_concurrency_of_one_is_the_sequential_behaviour(window: DateWindow) -> None:
+    urls = paced_urls(4)
+    adapter = PacedStubAdapter(make_source("alpha"), urls=urls, failing_urls={urls[2]})
+    run = manifest()
+
+    outcome = ingest_source(adapter, window, manifest=run, concurrency=1)
+
+    assert adapter.peak == 1
+    assert adapter.completed == urls  # fetched front to back
+    assert [a.url for a in outcome.fetched] == [urls[0], urls[1], urls[3]]
+    assert len(run.errors) == 1

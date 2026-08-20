@@ -15,8 +15,12 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
-from pydantic import Field, SecretStr, ValidationError, model_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 
+from newsletter.concurrency import (
+    DEFAULT_ANALYSIS_CONCURRENCY,
+    DEFAULT_FETCH_CONCURRENCY,
+)
 from newsletter.models import (
     PUBLISHABLE_CATEGORIES,
     FetchStrategy,
@@ -24,6 +28,7 @@ from newsletter.models import (
     TopicCategory,
     ValueModel,
     WindowMode,
+    validate_public_url,
 )
 from newsletter.persistence.dsn import (
     DEFAULT_DATABASE_URL,
@@ -155,6 +160,14 @@ class SubmissionSettings(ValueModel):
     #: Hosts that may never be submitted; a bare domain also blocks subdomains.
     blocked_hosts: list[str] = Field(default_factory=list)
 
+    #: Where readers can propose a link -- the address ``newsletter serve``
+    #: answers on, once it is reachable from wherever the edition is read. The
+    #: rendered edition links to it, so it is the one URL in the page that does
+    #: not come from ingestion and it is validated here, at load time, rather
+    #: than in a template. ``None`` (the default) prints no call to action at
+    #: all: an intake nobody can reach is worse than no invitation.
+    form_url: str | None = None
+
     #: A post is often a pointer, not the story. When a submitted page carries
     #: less than `min_text_chars` of text, follow its own outbound link and
     #: attach what it points at, so the analyst judges the announcement rather
@@ -172,6 +185,17 @@ class SubmissionSettings(ValueModel):
     min_text_chars: int = Field(default=600, ge=0, le=20_000)
     max_link_hops: int = Field(default=3, ge=1, le=10)
     max_linked_chars: int = Field(default=8_000, ge=500, le=50_000)
+
+    @field_validator("form_url", mode="before")
+    @classmethod
+    def _check_form_url(cls, value: Any) -> str | None:
+        """An empty value means "no form"; anything else must be publishable."""
+        if value is None:
+            return None
+        candidate = str(value).strip()
+        if not candidate:
+            return None
+        return validate_public_url(candidate)
 
     def as_source(self) -> SourceConfig:
         """The synthetic source record submissions are ingested through."""
@@ -202,6 +226,14 @@ class RuntimeSettings(ValueModel):
     log_level: str = "INFO"
     request_timeout_seconds: float = Field(default=60.0, gt=0)
     max_retries: int = Field(default=2, ge=0, le=5)
+    #: How many article assessments may be in flight at once. The whole of a call
+    #: is spent waiting on the API, so this is the single biggest lever on how
+    #: long a run takes. ``1`` restores the fully sequential behaviour, which is
+    #: also how the equivalence tests prove concurrency changes no artifact.
+    analysis_concurrency: int = Field(default=DEFAULT_ANALYSIS_CONCURRENCY, ge=1, le=32)
+    #: How many articles of one source may be fetched at once. Lower than the
+    #: model's, because these requests all land on a single origin.
+    fetch_concurrency: int = Field(default=DEFAULT_FETCH_CONCURRENCY, ge=1, le=16)
     openai_api_key: SecretStr | None = None
 
     @model_validator(mode="before")
@@ -318,6 +350,19 @@ def _runtime_from_env(env: Mapping[str, str], overrides: dict[str, Any]) -> Runt
     take("OPENAI_ANALYZER_MODEL", "analyzer_model")
     take("OPENAI_EDITOR_MODEL", "editor_model")
     take("LOG_LEVEL", "log_level")
+
+    def take_int(key: str, field: str) -> None:
+        """An integer override, refused rather than coerced when it is not one."""
+        raw = env.get(key, "").strip()
+        if not raw:
+            return
+        try:
+            values[field] = int(raw)
+        except ValueError as exc:
+            raise ConfigError(f"{key} must be a whole number, got {raw!r}") from exc
+
+    take_int("NEWSLETTER_ANALYSIS_CONCURRENCY", "analysis_concurrency")
+    take_int("NEWSLETTER_FETCH_CONCURRENCY", "fetch_concurrency")
 
     # The database has two spellings, so the layers have to be untangled before
     # the model's own tie-break runs: whichever spelling the *environment* gives
