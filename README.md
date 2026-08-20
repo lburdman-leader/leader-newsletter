@@ -70,6 +70,7 @@ python -m newsletter validate                             # validate configurati
 python -m newsletter sources                              # list configured sources
 python -m newsletter submit <url> --by NAME --note TEXT   # propose a story
 python -m newsletter submissions [--status pending]       # what happened to each
+python -m newsletter serve [--host ADDR --port N]         # the reader submission form
 
 python -m pytest                                          # 485 tests, no network, no key
 ruff check . && ruff format --check .
@@ -143,6 +144,7 @@ a strategy, configure it, capture a fixture, add an extraction test, validate.
 | `OPENAI_ANALYZER_MODEL` / `OPENAI_EDITOR_MODEL` | override the configured models |
 | `NEWSLETTER_DB_PATH` / `NEWSLETTER_OUTPUT_DIR` | override paths |
 | `LOG_LEVEL` | `DEBUG` … `CRITICAL` |
+| `NEWSLETTER_ANALYSIS_CONCURRENCY` / `NEWSLETTER_FETCH_CONCURRENCY` | how many model calls / article fetches run at once (8 and 6; `1` is one at a time) |
 
 `.env` is never committed, and the development harness blocks tooling from reading it.
 
@@ -172,6 +174,31 @@ link would be a way to write the analyst's prompt. Submitted URLs must be `https
 checked against a host blocklist, and are refused if they resolve into private or loopback
 address space. Tune it under `submissions:` in `config/newsletter.yaml`, or set
 `enabled: false` to close the door.
+
+### From the newsletter itself, without a terminal
+
+```bash
+python -m newsletter serve            # http://127.0.0.1:8765/submit
+```
+
+The form asks for three things — **full name**, **link**, and an optional **description** —
+and writes them straight into the `submissions` table of the configured database
+(`NEWSLETTER_DATABASE_URL`, SQLite or PostgreSQL). They land as `pending`, and the next
+`newsletter run` picks up every pending one, subject to `max_per_run`. Resubmitting the
+same link updates that submission instead of creating a second one: the id is a hash of
+the canonical URL. The link goes through the same gate as `newsletter submit` — https,
+blocklist, and a refusal to resolve into private address space.
+
+Set `submissions.form_url` in `config/newsletter.yaml` to the address readers can actually
+reach, and every rendered edition prints a call to action linking to it, opening in a new
+window. Leave it empty and the edition prints nothing at all — an intake nobody can reach
+is worse than no invitation.
+
+`serve` binds to `127.0.0.1` on purpose: **the form has no authentication**, so whoever can
+reach it can queue links. Exposing it is a deployment decision. The application is a plain
+WSGI callable, so a real deployment runs it behind a real server — `gunicorn
+newsletter.web.app:application` — with TLS, logging and whatever rate limiting the exposure
+deserves, rather than pointing `--host 0.0.0.0` at the world.
 
 ## Automation
 

@@ -287,6 +287,29 @@
   }
   .colophon-note { margin: 0.625rem 0 0; font-size: 0.7rem; line-height: 1.5; color: var(--muted); }
 
+  /* ---------- reader call to action ---------- */
+  .submit-cta {
+    margin-top: 2.75rem;
+    padding: 1.125rem 1.25rem;
+    background: var(--accent);
+    color: var(--accent-ink);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 1.5rem;
+  }
+  .submit-cta p { margin: 0; font-size: 0.95rem; font-weight: 700; line-height: 1.35; }
+  .submit-cta a {
+    color: var(--accent-ink);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+    white-space: nowrap;
+  }
+
   /* ---------- wider screens ---------- */
   @media (min-width: 46rem) {
     body { padding: 2.75rem 2.75rem 3.5rem; }
@@ -441,6 +464,13 @@
     </div>
   </section>
   {% endfor %}
+
+  {% if submit_url %}
+  <aside class="submit-cta">
+    <p>¿Viste algo que deberíamos cubrir esta semana?</p>
+    <a href="{{ submit_url }}" target="_blank" rel="noopener noreferrer">Enviar un enlace &rarr;</a>
+  </aside>
+  {% endif %}
 
   <footer class="colophon">
     <span>{{ edition.masthead }} &middot; edición {{ edition.issue_label }}</span>

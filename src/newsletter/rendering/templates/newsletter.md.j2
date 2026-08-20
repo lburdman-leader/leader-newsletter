@@ -52,6 +52,12 @@
 
 {% endfor %}
 {% endfor %}
+{% if submit_url %}
+---
+
+¿Viste algo que deberíamos cubrir esta semana? [Enviar un enlace →]({{ submit_url }})
+
+{% endif %}
 ---
 
 *{{ edition.masthead | md }} · edición {{ edition.issue_label | md }} · generado el {{ edition.generated_at | issue_datetime }} a partir de {{ edition.all_items() | length }} notas.*

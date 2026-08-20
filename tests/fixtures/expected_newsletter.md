@@ -64,4 +64,8 @@ Tubewatch · 15 ago 2026 · [Ver la fuente →](https://news.example/story-3)
 
 ---
 
+¿Viste algo que deberíamos cubrir esta semana? [Enviar un enlace →](https://intake.example/submit)
+
+---
+
 *AI & Digital Intelligence Weekly · edición 2026-W34 · generado el 18 ago 2026, 09:00 UTC a partir de 4 notas.*

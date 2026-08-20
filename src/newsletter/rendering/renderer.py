@@ -178,20 +178,46 @@ def category_titles_for(edition: NewsletterEdition) -> dict[TopicCategory, str]:
     return {**DEFAULT_SECTION_TITLES, **{s.category: s.title for s in edition.sections}}
 
 
-def render_html(edition: NewsletterEdition, *, tagline: str = "") -> str:
+def checked_submit_url(submit_url: str | None) -> str | None:
+    """The submission-form URL, re-validated immediately before it is printed.
+
+    It is the one link in the edition that does not come from ingestion, so
+    ``validate_edition_links`` cannot vouch for it. Configuration validates it at
+    load time; this is the second check, on the path that actually renders it, so
+    no caller can print an unvalidated link by passing one directly.
+    """
+    if submit_url is None:
+        return None
+    candidate = submit_url.strip()
+    if not candidate:
+        return None
+    try:
+        return validate_public_url(candidate)
+    except ValueError as exc:
+        raise RenderError(f"submission form URL is not publishable: {exc}") from exc
+
+
+def render_html(
+    edition: NewsletterEdition, *, tagline: str = "", submit_url: str | None = None
+) -> str:
     return (
         build_environment()
         .get_template(HTML_TEMPLATE)
         .render(
             edition=edition,
             tagline=tagline,
+            submit_url=checked_submit_url(submit_url),
             category_titles=category_titles_for(edition),
         )
     )
 
 
-def render_markdown(edition: NewsletterEdition) -> str:
-    return build_environment().get_template(MARKDOWN_TEMPLATE).render(edition=edition)
+def render_markdown(edition: NewsletterEdition, *, submit_url: str | None = None) -> str:
+    return (
+        build_environment()
+        .get_template(MARKDOWN_TEMPLATE)
+        .render(edition=edition, submit_url=checked_submit_url(submit_url))
+    )
 
 
 def render_json(edition: NewsletterEdition) -> str:
@@ -231,6 +257,7 @@ def write_edition(
     ranked: Sequence[RankedArticle] | None = None,
     manifest: RunManifest | None = None,
     tagline: str = "",
+    submit_url: str | None = None,
     allowed_urls: Collection[str] | None = None,
 ) -> dict[str, Path]:
     """Validate, render and write every artifact. Returns name -> path."""
@@ -246,8 +273,8 @@ def write_edition(
         path.write_text(content, encoding="utf-8", newline="\n")
         written[name] = path
 
-    write("html", HTML_FILENAME, render_html(edition, tagline=tagline))
-    write("markdown", MARKDOWN_FILENAME, render_markdown(edition))
+    write("html", HTML_FILENAME, render_html(edition, tagline=tagline, submit_url=submit_url))
+    write("markdown", MARKDOWN_FILENAME, render_markdown(edition, submit_url=submit_url))
     write("json", JSON_FILENAME, render_json(edition))
     if ranked is not None:
         write("selected_articles", SELECTED_FILENAME, selected_articles_payload(ranked))

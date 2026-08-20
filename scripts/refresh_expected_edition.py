@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from tests.unit.test_renderer import build_fixture_edition  # noqa: E402
+from tests.unit.test_renderer import SUBMIT_URL, build_fixture_edition  # noqa: E402
 
 from newsletter.rendering.renderer import (  # noqa: E402
     render_html,
@@ -32,6 +32,9 @@ from newsletter.rendering.renderer import (  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures"
 TAGLINE = "Platform, model and monetization intelligence for the week"
+# SUBMIT_URL comes from the test module: the golden edition carries the reader
+# call to action, and it must be the same address the tests render with or the
+# golden comparison fails for a reason that has nothing to do with the template.
 
 
 def main(argv: list[str]) -> int:
@@ -39,19 +42,23 @@ def main(argv: list[str]) -> int:
 
     FIXTURES.mkdir(parents=True, exist_ok=True)
     (FIXTURES / "expected_newsletter.md").write_text(
-        render_markdown(edition), encoding="utf-8", newline="\n"
+        render_markdown(edition, submit_url=SUBMIT_URL), encoding="utf-8", newline="\n"
     )
     (FIXTURES / "expected_newsletter.json").write_text(
         render_json(edition), encoding="utf-8", newline="\n"
     )
     (FIXTURES / "expected_newsletter.html").write_text(
-        render_html(edition, tagline=TAGLINE), encoding="utf-8", newline="\n"
+        render_html(edition, tagline=TAGLINE, submit_url=SUBMIT_URL),
+        encoding="utf-8",
+        newline="\n",
     )
     print(f"refreshed golden fixtures in {FIXTURES}")
 
     if "--sample" in argv:
         target = ROOT / "output" / "sample-edition"
-        written = write_edition(edition, target, ranked=ranked, tagline=TAGLINE)
+        written = write_edition(
+            edition, target, ranked=ranked, tagline=TAGLINE, submit_url=SUBMIT_URL
+        )
         print("wrote a browsable sample edition:")
         for name, path in written.items():
             print(f"  {name:18} {path}")

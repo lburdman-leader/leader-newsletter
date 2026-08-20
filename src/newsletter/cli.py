@@ -5,6 +5,7 @@
     python -m newsletter sources
     python -m newsletter submit <url> [--by NAME] [--note TEXT]
     python -m newsletter submissions [--status pending|approved|rejected|published]
+    python -m newsletter serve [--host ADDR] [--port N]
 
 Exit codes are stable, because CI and the weekly workflow depend on them:
 
@@ -43,6 +44,11 @@ EXIT_USAGE = 2
 #: A run that worked but found nothing worth publishing. A scheduled job must be
 #: able to tell that apart from a breakage.
 EXIT_NOTHING_TO_PUBLISH = 4
+
+#: Loopback by default: the submission form has no authentication, so reaching a
+#: network is something an operator chooses, not something a default does.
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8765
 
 logger = get_logger("cli")
 
@@ -102,6 +108,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--requeue",
         action="store_true",
         help="reconsider a link that was already decided, e.g. after a policy change",
+    )
+
+    serve = subparsers.add_parser(
+        "serve", help="serve the reader submission form (localhost only by default)"
+    )
+    serve.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        metavar="ADDR",
+        help=(
+            f"interface to bind (default: {DEFAULT_HOST}). The default reaches only this "
+            "machine on purpose: the form is unauthenticated, so exposing it to a network "
+            "is a deployment decision, taken with a real server in front of it."
+        ),
+    )
+    serve.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help=f"port to bind (default: {DEFAULT_PORT})"
     )
 
     listing = subparsers.add_parser(
@@ -234,6 +257,47 @@ def cmd_submit(config: AppConfig, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_serve(config: AppConfig, args: argparse.Namespace) -> int:
+    """Serve the submission form the edition links to.
+
+    ``wsgiref`` runs it here so a local run needs no dependency; the application
+    is a plain WSGI callable, so a deployment runs the same object under gunicorn
+    or uvicorn without changing a line.
+    """
+    from wsgiref.simple_server import make_server
+
+    from newsletter.web.app import FORM_PATH, SubmissionApp
+
+    if not config.submissions.enabled:
+        print("Submissions are disabled in config/newsletter.yaml.", file=sys.stderr)
+        return EXIT_ERROR
+
+    app = SubmissionApp(config)
+    try:
+        server = make_server(args.host, args.port, app)
+    except OSError as exc:
+        logger.error("could not bind %s:%s: %s", args.host, args.port, exc)
+        print(f"Error: could not bind {args.host}:{args.port}: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+    report(f"Submission form on http://{args.host}:{args.port}{FORM_PATH}")
+    report_plain(f"    database {redact_dsn(config.runtime.database_url)}")
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        report_plain(
+            "    warning  this binding is reachable from the network and the form has no "
+            "authentication"
+        )
+    report_plain("    Stop with Ctrl-C.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        report_plain("")
+        report("Stopped")
+    finally:
+        server.server_close()
+    return EXIT_OK
+
+
 def cmd_submissions(config: AppConfig, args: argparse.Namespace) -> int:
     database: Storage = open_database(config)
     try:
@@ -312,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_submit(config, args)
     if args.command == "submissions":
         return cmd_submissions(config, args)
+    if args.command == "serve":
+        return cmd_serve(config, args)
     if args.command == "run":
         try:
             return cmd_run(config, args)
