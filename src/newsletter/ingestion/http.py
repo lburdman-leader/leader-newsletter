@@ -12,6 +12,7 @@ network layer.
 from __future__ import annotations
 
 import gzip
+import http.client
 import ipaddress
 import socket
 import urllib.error
@@ -140,6 +141,13 @@ class UrllibHttpClient:
             raise HttpError(safe_url, f"connection failed: {exc.reason}") from exc
         except TimeoutError as exc:
             raise HttpError(safe_url, f"timed out after {self.timeout}s") from exc
+        except http.client.HTTPException as exc:
+            # A truncated chunked body, a bad status line, an over-long header:
+            # the malformed-response family. HTTPException is not an OSError, so
+            # without this it escapes the transport boundary entirely and one bad
+            # article aborts the whole run instead of being recorded and skipped.
+            # TLS-inspecting middleboxes produce these routinely.
+            raise HttpError(safe_url, f"malformed response: {type(exc).__name__}: {exc}") from exc
         except OSError as exc:
             raise HttpError(safe_url, f"transport error: {exc}") from exc
 

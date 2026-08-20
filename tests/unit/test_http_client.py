@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import http.client
 import zlib
 
 import pytest
@@ -35,6 +36,49 @@ def test_the_offline_guard_actually_blocks_real_connections() -> None:
     """Proves the autouse `no_network` fixture is not a no-op."""
     with pytest.raises((RuntimeError, HttpError)):
         UrllibHttpClient(timeout=0.1).get("https://example.invalid/definitely-not-fetched")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        http.client.IncompleteRead(b"half a body"),
+        http.client.RemoteDisconnected("closed without response"),
+        http.client.BadStatusLine("garbage"),
+    ],
+    ids=["truncated body", "closed early", "bad status line"],
+)
+def test_a_malformed_response_is_an_http_error_and_not_an_escape(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    """The malformed-response family must not escape the transport boundary.
+
+    ``http.client.HTTPException`` is not an ``OSError``, so before this it slipped
+    past every clause in ``get`` and past the per-article ``except (AdapterError,
+    HttpError)`` in ingestion. One truncated body then aborted an entire live run,
+    which is precisely what the failure-isolation rule forbids. A TLS-inspecting
+    proxy produces these routinely.
+    """
+
+    class _Failing:
+        def read(self, _amt: int) -> bytes:
+            raise failure
+
+        def geturl(self) -> str:
+            return "https://x.example/a"
+
+        def __enter__(self) -> _Failing:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "newsletter.ingestion.http.urllib.request.urlopen",
+        lambda *a, **k: _Failing(),
+    )
+
+    with pytest.raises(HttpError, match="malformed response"):
+        UrllibHttpClient(block_private_hosts=False).get("https://x.example/a")
 
 
 def test_content_type_ignores_charset_and_case() -> None:

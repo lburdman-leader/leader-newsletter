@@ -228,11 +228,21 @@ def describe_violations(violations: Sequence[EntityViolation]) -> str:
 
 
 def unsupported_in_assessment(ranked: RankedArticle) -> list[EntityViolation]:
-    """Analyst-authored prose that names an entity its own article never does."""
+    """Analyst-authored prose that names an entity its own article never does.
+
+    ``why_it_matters`` is deliberately excluded. It is the one field whose job is
+    inference rather than reporting: ADR-0032 puts the audience in the rubric, so
+    it is *supposed* to name Leader Entertainment's world -- YouTube, Shorts,
+    kids' content -- for a story whose source never mentions any of them. Guarding
+    it cost a real edition the most relevant story it had, an OpenAI teen-safety
+    launch, because the interpretation said "YouTube" and OpenAI's post did not.
+    Fabricated entities are a reporting failure, so the guard belongs on the
+    reporting fields; an unsupported *inference* is an editorial problem a
+    string comparison cannot see.
+    """
     return find_unsupported_entities(
         {
             "summary": ranked.assessment.summary,
-            "why_it_matters": ranked.assessment.why_it_matters,
             "key_facts": list(ranked.assessment.key_facts),
         },
         trusted_text(ranked),
@@ -245,9 +255,11 @@ def unsupported_in_edition(
 ) -> list[EntityViolation]:
     """Editor-authored prose that names an entity no published source does.
 
-    Headlines and interpretation are checked against their own story. The
-    executive brief is written about the week rather than about one article, so
-    any published story may support it.
+    Headlines are checked against their own story; ``why_it_matters`` is not, for
+    the reason given in :func:`unsupported_in_assessment` -- the editor may
+    override it, and it is interpretation either way. The executive brief is
+    written about the week rather than about one article, so any published story
+    may support it.
     """
     by_id = {ranked.article.article_id: ranked for ranked in selected}
     violations: list[EntityViolation] = []
@@ -258,7 +270,7 @@ def unsupported_in_edition(
             continue
         violations.extend(
             find_unsupported_entities(
-                {"headline": item.headline, "why_it_matters": item.why_it_matters},
+                {"headline": item.headline},
                 trusted_text(ranked),
                 article_id=item.article_id,
             )

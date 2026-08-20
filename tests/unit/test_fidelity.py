@@ -217,14 +217,34 @@ def test_an_analyst_that_corrupts_a_name_is_caught_on_its_own_article() -> None:
     corrupted = ranked.model_copy(
         update={
             "assessment": ranked.assessment.model_copy(
-                update={"why_it_matters": "Cambia lo que pagan en UTube."}
+                update={"summary": "Cambia lo que pagan en UTube."}
             )
         }
     )
 
     violations = unsupported_in_assessment(corrupted)
-    assert [(v.field, v.token) for v in violations] == [("why_it_matters", "UTube")]
+    assert [(v.field, v.token) for v in violations] == [("summary", "UTube")]
     assert violations[0].article_id == corrupted.article.article_id
+
+
+def test_interpretation_may_name_the_readers_world_when_the_source_does_not() -> None:
+    """``why_it_matters`` infers for Leader Entertainment; the source need not agree.
+
+    A live edition dropped an OpenAI teen-safety launch -- the most relevant story
+    in the pool for a children's video company -- because the interpretation said
+    "YouTube" and OpenAI's post never does. Guarding an inference field against
+    its source is a category error, and this pins that it no longer happens.
+    """
+    ranked = make_ranked(1, *STORIES[0])
+    inferred = ranked.model_copy(
+        update={
+            "assessment": ranked.assessment.model_copy(
+                update={"why_it_matters": "Marca el rumbo para YouTube Kids y Shorts en la region."}
+            )
+        }
+    )
+
+    assert unsupported_in_assessment(inferred) == []
 
 
 def test_a_corrupted_headline_is_caught_on_the_finished_edition() -> None:
