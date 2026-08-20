@@ -1,30 +1,48 @@
-"""Why ``anthropic-news`` stays disabled, pinned against captured markup.
+"""Why ``anthropic-news`` is enabled, and the tripwire that says when to stop.
 
-Anthropic publishes no feed, so the only option is ``scrapling_static``. The link
-and title selectors below work fine against the real index. The *date* does not,
-and that is disqualifying: the authoritative window filter needs a real
-publication date, and neither the index nor the article page states one in any
-machine-readable form.
+Anthropic publishes no feed, so the only option is ``scrapling_static``. Nothing
+on the page states a date in any standard form: no ``article:published_time``,
+no JSON-LD, no ``<time datetime>``, and the rendered text is ``Aug 14, 2026``,
+which is neither ISO 8601 nor RFC 2822. The single machine-readable timestamp is
+a ``publishedOn`` field inside the escaped Next.js RSC payload, which the
+source's ``embedded_date_key`` reads during normalization.
 
-These tests are the evidence for that verdict. They run entirely offline against
-``tests/fixtures/sources/anthropic-news/``, which is real markup captured on
-2026-08-19. If Anthropic ever ships a feed, a ``<time datetime>`` attribute,
-JSON-LD or an ``article:published_time`` meta tag, the date assertions here start
-failing -- which is exactly the signal to revisit ``config/sources.yaml``.
+That route works, and these tests prove it against real markup captured on
+2026-08-19 in ``tests/fixtures/sources/anthropic-news/``. It is also the most
+fragile thing in the source list: it depends on the shape of Anthropic's own
+rendering internals rather than on a published contract. **This file is the
+tripwire.** When the payload stops looking like the capture, these tests fail --
+and that failure, not a silently empty section in the edition, is how the break
+gets noticed.
+
+Everything here runs offline; ``tests/conftest.py`` enforces that.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
+from scrapling import Selector
 
 from newsletter.ingestion.dates import parse_datetime
 from newsletter.ingestion.scrapling import ScraplingAdapter
 from newsletter.models import DiscoveredArticle, RawArticle, SourceConfig, TopicCategory
-from newsletter.normalization.article import NormalizationError, normalize_article
+from newsletter.normalization.article import (
+    NormalizationError,
+    extract_embedded_date,
+    normalize_article,
+)
 from tests.conftest import FakeHttpClient, read_fixture
 
 INDEX_URL = "https://www.anthropic.com/news"
 WATERMARK_URL = "https://www.anthropic.com/news/claude-text-watermark"
+
+#: The article's own date, verbatim from the captured payload. Distinct from the
+#: ``_createdAt`` (2026-08-13) sitting beside it and from the related post's
+#: ``publishedOn`` (2026-08-07) further down, so a wrong read cannot coincide
+#: with the right one.
+WATERMARK_PUBLISHED_AT = datetime(2026, 8, 14, 19, 16, tzinfo=UTC)
 
 #: Derived from the captured DOM. Anthropic's class names are build-hashed
 #: (``PublicationList-module-scss-module__KxYrHG__listItem``), so they are
@@ -45,7 +63,8 @@ def anthropic_article() -> str:
     return read_fixture("anthropic-news", "article.html")
 
 
-def make_source() -> SourceConfig:
+def make_source(*, embedded_date_key: str | None = "publishedOn") -> SourceConfig:
+    """The live ``anthropic-news`` config, with the date key overridable."""
     return SourceConfig(
         id="anthropic-news",
         name="Anthropic News",
@@ -53,8 +72,20 @@ def make_source() -> SourceConfig:
         strategy="scrapling_static",
         priority=7,
         category_hint=TopicCategory.AI_MODELS,
-        enabled=False,
+        enabled=True,
         selectors=SELECTORS,
+        embedded_date_key=embedded_date_key,
+    )
+
+
+def make_raw(html: str, retrieved_at: datetime) -> RawArticle:
+    return RawArticle(
+        source_id="anthropic-news",
+        url=WATERMARK_URL,
+        final_url=WATERMARK_URL,
+        raw_content=html,
+        retrieved_at=retrieved_at,
+        content_type="text/html",
     )
 
 
@@ -65,7 +96,7 @@ def adapter(anthropic_index: str, anthropic_article: str) -> ScraplingAdapter:
 
 
 # --------------------------------------------------------------------------- #
-# what does work: links and titles
+# discovery: links and titles, but deliberately no dates
 # --------------------------------------------------------------------------- #
 
 
@@ -92,46 +123,113 @@ def test_titles_are_recoverable_from_the_anchor(adapter: ScraplingAdapter, windo
     assert "How Claude" in titles[1] and "text watermark works" in titles[1]
 
 
-# --------------------------------------------------------------------------- #
-# what does not work: the date. This is the blocker.
-# --------------------------------------------------------------------------- #
-
-
 @pytest.mark.parametrize("rendered", ["Aug 14, 2026", "Jul 24, 2026", "Jul 30, 2026"])
-def test_anthropic_date_text_is_not_parseable(rendered: str) -> None:
-    """Anthropic renders ``Mon D, YYYY``, which is neither ISO 8601 nor RFC 2822.
-
-    ``parse_datetime`` correctly refuses to guess rather than invent a timestamp.
-    """
+def test_rendered_date_text_is_still_not_parseable(rendered: str) -> None:
+    """The visible ``Mon D, YYYY`` text remains unusable, which is why the payload matters."""
     assert parse_datetime(rendered) is None
 
 
-def test_index_yields_no_publication_date(adapter: ScraplingAdapter, window) -> None:
-    """The ``<time>`` elements exist but carry no ``datetime`` attribute."""
+def test_discovery_still_yields_no_date_hint(adapter: ScraplingAdapter, window) -> None:
+    """Index items arrive undated on purpose.
+
+    The index payload holds one ``publishedOn`` per listed item with no
+    privileged first position, so a first-match read there would stamp every item
+    with the first item's date. Discovery therefore passes candidates through
+    undated and lets normalization establish the real date per article.
+    """
     found = adapter.discover(window)
 
     assert found, "discovery must find items, otherwise this proves nothing"
     assert all(article.published_at_hint is None for article in found)
 
 
-def test_article_page_states_no_date_so_normalization_refuses_it(
+# --------------------------------------------------------------------------- #
+# the date: extracted from the embedded payload
+# --------------------------------------------------------------------------- #
+
+
+def test_embedded_payload_yields_the_articles_own_date(anthropic_article: str) -> None:
+    """The first ``publishedOn`` is the article's own, not a related post's."""
+    found = extract_embedded_date(Selector(anthropic_article), "publishedOn")
+
+    assert found == WATERMARK_PUBLISHED_AT
+
+
+def test_extraction_ignores_the_related_posts_further_down(anthropic_article: str) -> None:
+    """The payload's later dates are teasers and must never be mistaken for this one."""
+    found = extract_embedded_date(Selector(anthropic_article), "publishedOn")
+
+    assert found != datetime(2026, 8, 7, 1, 0, tzinfo=UTC), "picked up a relatedPosts date"
+    assert found != datetime(2026, 8, 13, 23, 49, 28, tzinfo=UTC), "picked up _createdAt"
+
+
+def test_normalization_dates_the_article_from_the_payload(anthropic_article: str, window) -> None:
+    """End to end: an Anthropic article now normalizes, dated and inside the window."""
+    article = normalize_article(make_raw(anthropic_article, window.end), make_source(), hint=None)
+
+    assert article.published_at == WATERMARK_PUBLISHED_AT
+    assert window.contains(article.published_at)
+    assert article.canonical_url == WATERMARK_URL
+
+
+def test_extracted_date_matches_the_human_visible_one(anthropic_article: str) -> None:
+    """The payload agrees with the date printed beside the headline.
+
+    Worth asserting separately: the payload could be internally consistent and
+    still not mean "publication date". Agreeing with what a reader sees is the
+    evidence that it does. Verified by hand on 7 live articles spanning
+    2026-06-30 to 2026-08-14; pinned here on the captured one.
+    """
+    rendered = datetime.strptime("Aug 14, 2026", "%b %d, %Y").replace(tzinfo=UTC).date()
+    found = extract_embedded_date(Selector(anthropic_article), "publishedOn")
+
+    assert ">Aug 14, 2026<" in anthropic_article, "the visible date moved; recapture the fixture"
+    assert found is not None and found.date() == rendered
+
+
+# --------------------------------------------------------------------------- #
+# failing safe: a missing or unusable key must never produce a guess
+# --------------------------------------------------------------------------- #
+
+
+def test_missing_key_yields_none_rather_than_a_guess(anthropic_article: str) -> None:
+    """A key that is not in the payload returns None. Nothing is inferred."""
+    assert extract_embedded_date(Selector(anthropic_article), "firstPublishedAt") is None
+
+
+def test_payload_without_the_key_fails_the_article_explicitly(
     anthropic_article: str, window
 ) -> None:
-    """Stage 3 cannot rescue the date either: the article page does not state one.
+    """Rule 7: the article is refused, and the reason names the key an operator must fix."""
+    broken = anthropic_article.replace("publishedOn", "renamedByAFrameworkUpgrade")
 
-    No ``article:published_time``, no ``datePublished`` JSON-LD, no ``<time>``
-    element. With no hint from discovery, the article is rejected rather than
-    dated by guesswork -- so an enabled ``anthropic-news`` would contribute
-    exactly nothing to an edition while still costing a fetch per article.
+    with pytest.raises(NormalizationError) as raised:
+        normalize_article(make_raw(broken, window.end), make_source(), hint=None)
+
+    assert "publishedOn" in raised.value.reason
+    assert "refusing to invent one" in raised.value.reason
+
+
+def test_a_non_string_value_is_refused_instead_of_read_past(window) -> None:
+    """A key that stops holding a string must not fall through to the next record.
+
+    This is the dangerous failure: sliding past a ``null`` would silently return
+    a *related post's* date, which is a plausible-looking wrong answer rather
+    than an obvious break.
     """
-    raw = RawArticle(
-        source_id="anthropic-news",
-        url=WATERMARK_URL,
-        final_url=WATERMARK_URL,
-        raw_content=anthropic_article,
-        retrieved_at=window.end,
-        content_type="text/html",
+    payload = (
+        '<script>self.__next_f.push([1,"{\\"publishedOn\\":null,'
+        '\\"relatedPosts\\":[{\\"publishedOn\\":\\"2026-08-07T01:00:00.000Z\\"}]}"])</script>'
     )
 
+    assert extract_embedded_date(Selector(payload), "publishedOn") is None
+
+
+def test_source_without_the_key_configured_does_not_scan(anthropic_article: str, window) -> None:
+    """The mechanism is opt-in: an unconfigured source behaves exactly as before."""
     with pytest.raises(NormalizationError, match="no publication date"):
-        normalize_article(raw, make_source(), hint=None)
+        normalize_article(
+            make_raw(anthropic_article, window.end),
+            make_source(embedded_date_key=None),
+            hint=None,
+        )

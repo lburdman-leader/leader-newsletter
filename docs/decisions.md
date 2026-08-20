@@ -1033,3 +1033,60 @@ works when a source contributes enough articles to make the repetition visible. 
 problem is that `clean_text` is also what the analyzer reads, so navigation text is being fed
 to the model as article content and is scored as if it were the story. The real fix is
 narrowing extraction to the article body, not moving the threshold. Deferred; not done here.
+
+---
+
+## 2026-08-20 · ADR-0035 · A date may be read from an embedded script payload, when the source opts in by naming the key
+
+**Decision.** New optional field on `SourceConfig`: `embedded_date_key` (a JSON identifier,
+pattern-validated, default `None`). When set, `extract_published_at` scans the page's
+`<script>` elements for that key and validates the value through `ingestion/dates.py`. It runs
+*after* the standard routes (`article:published_time`, JSON-LD, `<time datetime>`) and before
+the discovery hint, so it can only add a date, never override a declared one. Unset — the
+default everywhere else — means the scan does not happen at all.
+
+`anthropic-news` is enabled on this mechanism at priority 7 (ADR-0030: an organisation
+announcing its own news), with `embedded_date_key: publishedOn`.
+
+**Reason.** Anthropic publishes no feed (`/rss.xml`, `/feed.xml`, `/news/rss.xml`, `/news/feed`
+all 404) and states no date in any standard form: no `article:published_time`, no JSON-LD, no
+`<time>` element at all. The rendered text is `Aug 14, 2026`, which is neither ISO 8601 nor RFC
+2822, so `parse_datetime` correctly refuses it. The only machine-readable timestamp is
+`publishedOn` inside the escaped Next.js RSC payload. The owner wants the source; the date was
+the sole blocker; the date is in fact present and unambiguous.
+
+**Why a config field and not an Anthropic adapter.** The pattern — a framework that renders
+from an embedded data blob and ships no date in the markup — is not Anthropic-specific; it is
+what every Next.js/Nuxt/Remix content site does. Naming the key in configuration keeps `src/`
+free of any vendor branch and lets the next such source be a one-line YAML change. The key name
+varies by CMS (`publishedOn`, `datePublished`, `firstPublishedAt`), which is exactly why it is
+data and not a constant.
+
+**Article pages only; discovery deliberately does not use it.** First match wins, and that is
+safe only where the page's own record leads the payload. On an article page it does: the entry
+opens `{"post":{...,"publishedOn":X,"relatedPosts":[...]}}`, verified on 7 live articles
+spanning 2026-06-30 to 2026-08-14, with the value matching the human-visible date on every one.
+The *index* page carries one record per listed item — 271 occurrences of the key, no privileged
+first position — so a first-match read there would stamp all 14 items with the first item's
+date. Index items therefore stay undated and are filtered by window after normalization, which
+costs one fetch per article and is the price of the source.
+
+**Treated as hostile input (rule 3).** The payload is never evaluated and never deserialized.
+It is scanned under a 1,000,000-character budget with a bounded, linear pattern; the value
+group is capped at 64 characters and excludes quotes and backslashes. The pattern also matches
+an *unquoted* value (`null`, a bare number) purely so a key that stopped holding a string is
+seen and refused there, rather than the scan sliding on to the next occurrence and returning a
+related post's date — a plausible-looking wrong answer is worse than a visible break.
+
+**Failure is explicit (rule 7).** No date means `NormalizationError`, recorded in the run
+manifest by `normalize_all`, with a message naming the configured key. Nothing is guessed.
+
+**Known fragility, accepted knowingly.** Every other source rests on a feed or a published
+metadata contract. This one rests on the shape of Anthropic's rendering internals, which they
+may change without notice and owe nobody. It fails safe rather than silently — a break yields
+an empty `anthropic-news` and a manifest full of the named-key error, not a wrong date — and
+`tests/unit/test_ingestion_anthropic_news.py` pins the extraction against captured markup as
+the tripwire. The manifest, not the edition, is where an operator sees it first.
+
+**Not changed.** No prompt, no schema version, no `min_score`, no score formula; the v2
+assessment cache stays valid.

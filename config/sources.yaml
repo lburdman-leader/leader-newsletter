@@ -150,38 +150,54 @@ sources:
     enabled: true
 
   # --- AI video and creative AI -----------------------------------------
-  # VERIFIED 2026-08-19 against the live site, and DISABLED on the evidence.
-  # Anthropic publishes no feed (/rss.xml, /feed.xml, /news/rss.xml and
-  # /news/feed all 404), so scrapling_static is the only option, and the
-  # selectors below are the real ones: they resolve all 14 index items to
-  # absolute URLs with titles. The date is what disqualifies the source.
+  # VERIFIED 2026-08-19 against the live site. Anthropic publishes no feed
+  # (/rss.xml, /feed.xml, /news/rss.xml and /news/feed all 404), so
+  # scrapling_static is the only option. The date was the blocker, and it is now
+  # solved -- but by a route that deserves the warning below.
   #
-  #   * the index <time> elements carry NO datetime attribute -- only the text
-  #     "Aug 14, 2026", which is neither ISO 8601 nor RFC 2822, so
-  #     ingestion/dates.py returns None rather than inventing a date;
-  #   * Stage 3 cannot rescue it either. The article page has no
-  #     article:published_time, no datePublished JSON-LD and no <time> element
-  #     at all (20 meta tags, none of them a date). The only machine-readable
-  #     timestamp is a "publishedOn" field buried in an escaped Next.js RSC
-  #     payload inside a <script> string, which is not addressable by a CSS
-  #     selector and would break on any framework change.
+  # Nothing standard states a date. The index <time> elements carry no datetime
+  # attribute, only the text "Aug 14, 2026", which is neither ISO 8601 nor RFC
+  # 2822. The article page has no article:published_time, no datePublished
+  # JSON-LD and no <time> element at all. The one machine-readable timestamp is
+  # a "publishedOn" field inside the escaped Next.js RSC payload in a <script>,
+  # which embedded_date_key below reads during normalization.
   #
-  # Undated articles are rejected by normalization and dropped by the
-  # authoritative window filter, so enabling this would cost one fetch per
-  # article and contribute exactly nothing. Re-enable only once Anthropic ships
-  # a feed or a machine-readable date; the assertions in
-  # tests/unit/test_ingestion_anthropic_news.py are the tripwire for that.
+  # FRAGILITY -- read before trusting this source. Every other source here rests
+  # on a feed or a published metadata contract. This one rests on the shape of
+  # Anthropic's own rendering internals, which they can change without notice
+  # and owe nobody. It survived 7 live articles spanning Jun-Aug 2026, and the
+  # value matched the human-visible date on every one, but that is evidence, not
+  # a guarantee.
+  #
+  # It fails SAFE, by construction: a renamed or restructured key yields no date,
+  # normalization refuses the article rather than inventing one, and the run
+  # manifest records "embedded key 'publishedOn' is missing or does not hold a
+  # valid timestamp". The symptom of a break is anthropic-news quietly
+  # contributing nothing while the manifest fills with that error -- so the
+  # manifest, not the edition, is where an operator will see it first.
+  # tests/unit/test_ingestion_anthropic_news.py is the tripwire: it pins the
+  # extraction against captured markup and starts failing the moment the payload
+  # shape stops matching what was verified.
+  #
+  # priority 7 per ADR-0030: an organisation announcing its own news.
   - id: anthropic-news
     name: Anthropic News
     category_hint: ai_models
     entrypoint: "https://www.anthropic.com/news"
     strategy: scrapling_static
     priority: 7
-    enabled: false
+    enabled: true
+    # The date comes from the embedded RSC payload, not from the markup. Only
+    # the article page is safe to read this way: its own record opens the
+    # payload, so the first "publishedOn" is that article's. The index page
+    # carries one record per listed item (271 occurrences of the key) with no
+    # privileged first position, so discovery deliberately does not use it.
+    embedded_date_key: publishedOn
     # Verified against tests/fixtures/sources/anthropic-news/index.html. The
     # class names are build-hashed (PublicationList-module-scss-module__KxYrHG__
     # ...), so the href prefix is the only stable handle. No date_attr: the
-    # <time> elements have no attribute to read.
+    # <time> elements have no attribute to read, which is why every index item
+    # arrives without a date hint and is filtered by window after normalization.
     selectors:
       link: 'a[href^="/news/"]'
       date: "time"

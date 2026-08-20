@@ -3,8 +3,22 @@
 <!-- Captured from https://www.anthropic.com/news/claude-text-watermark on 2026-08-19
      (HTTP 200). Every <meta> from the real <head> is preserved verbatim: not one of
      them carries a publication date. The page has no application/ld+json block and
-     no <time> element at all. The only date on it is the plain-text one rendered
-     beside the headline, kept below. -->
+     no <time> element at all -- the only human-visible date is the plain-text one
+     rendered beside the headline, kept below.
+
+     The date this source runs on lives in the Next.js RSC payload at the bottom.
+     That <script> is an excerpt of the real 154KB one, but every byte kept is
+     verbatim, including the double-encoding: the payload is a JavaScript string
+     literal, so its JSON quotes arrive on the wire backslash-escaped as \"key\".
+
+     Three properties of the real payload are preserved here on purpose, because
+     they are exactly what the extraction depends on:
+       1. the page's own post record opens the entry, so the FIRST "publishedOn"
+          is this article's date;
+       2. relatedPosts follow it, each carrying their own "publishedOn" -- the
+          2026-08-07 one below is the trap that first-match must not fall into;
+       3. "_createdAt" (2026-08-13) differs from "publishedOn" (2026-08-14), so a
+          reader that grabbed any date-shaped value would get the wrong day. -->
 <head>
 <title>How Claude&#x27;s text watermarking works \ Anthropic</title>
 <meta charSet="utf-8"/>
@@ -27,11 +41,15 @@
 <meta name="twitter:description" content="Future Claude models will generate text that contains a watermark. This is a way of determining the likelihood that Claude was involved in writing the text, and we, along with several other major AI providers, are implementing this change to comply with the EU AI Act.  In this article, we share answers to some of the questions we’ve received about how our chosen watermarking method works, whether it affects Claude’s outputs, and why we’re making this change."/>
 <meta name="twitter:image" content="https://www.anthropic.com/api/opengraph-illustration?name=Hand%20Quill&amp;backgroundColor=heather"/>
 <meta name="twitter:image:alt" content="Ornate quill pen resting on a detailed hand, positioned against a textured background"/>
+<link rel="canonical" href="https://www.anthropic.com/news/claude-text-watermark"/>
 </head>
 <body>
 <article>
+<div class="body-3 bold"><span>Announcements</span></div>
 <h1 class="headline-1 PostDetail-module-scss-module__UQuRMa__title">How Claude’s text watermark works</h1><div class="body-3 agate">Aug 14, 2026</div>
-<p>Body text truncated; this fixture exists to pin date extraction.</p>
+<p>Future Claude models will generate text that contains a watermark. This is a way of determining the likelihood that Claude was involved in writing the text, and we, along with several other major AI providers, are implementing this change to comply with the EU AI Act.</p>
+<p>In this article, we share answers to some of the questions we’ve received about how our chosen watermarking method works, whether it affects Claude’s outputs, and why we’re making this change.</p>
 </article>
+<script>self.__next_f.push([1,"6:[\"$\",\"$L16\",null,{\"post\":{\"_createdAt\":\"2026-08-13T23:49:28Z\",\"_id\":\"ea1dd6bd-f2f7-4f3a-886b-6a1a7f2f434c\",\"_rev\":\"jpluUeHA9uKZ6gJc3R2N4Q\",\"seo\":{\"seoTitle\":\"How Claude's text watermarking works\",\"socialImage\":null},\"publishedOn\":\"2026-08-14T19:16:00.000Z\",\"relatedPosts\":[{\"_type\":\"post\",\"cardPhoto\":null,\"illustration\":{\"name\":\"Node Bird\",\"type\":\"hero\"}},\"publishedOn\":\"2026-08-07T01:00:00.000Z\",\"slug\":{\"_type\":\"slug\",\"current\":\"improving-fable-5-s-biology-safeguards\"}}]}]\n"])</script>
 </body>
 </html>

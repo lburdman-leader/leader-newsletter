@@ -157,6 +157,14 @@ class SourceConfig(ValueModel):
     selectors: dict[str, str] = Field(default_factory=dict)
     #: Adapter-specific knobs (pagination, wait conditions, limits).
     options: dict[str, Any] = Field(default_factory=dict)
+    #: Opt-in: name of the JSON key holding the publication date inside a
+    #: ``<script>`` data payload, for sites that render from an embedded blob and
+    #: state no date in the markup itself. Unset means "do not look", which is the
+    #: default for every source. See
+    #: :func:`newsletter.normalization.article.extract_embedded_date`.
+    embedded_date_key: str | None = Field(
+        default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_-]*$", max_length=64
+    )
 
 
 class DateWindow(ValueModel):

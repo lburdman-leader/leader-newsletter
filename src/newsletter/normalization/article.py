@@ -20,6 +20,7 @@ import json
 import re
 from collections.abc import Iterable, Mapping
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
 
 from scrapling import Selector
@@ -56,6 +57,16 @@ _QUOTED_TITLE = re.compile(
 MAX_FALLBACK_HEADLINE = 120
 #: Below this a single sentence is too terse to stand as a headline.
 MIN_FALLBACK_HEADLINE = 40
+
+#: Upper bound on how much embedded ``<script>`` text is scanned for a date.
+#: Payload scripts on a data-driven page run to a few hundred KB; anything past
+#: this is refused rather than scanned, so a hostile or runaway page cannot turn
+#: date extraction into unbounded work.
+MAX_EMBEDDED_SCAN_CHARS = 1_000_000
+
+#: Longest plausible serialized timestamp. Bounds the value group so the pattern
+#: stays linear on adversarial input.
+MAX_EMBEDDED_DATE_CHARS = 64
 
 #: Containers tried in order when a source declares no content selector.
 CONTENT_SELECTORS: tuple[str, ...] = (
@@ -255,7 +266,75 @@ def extract_title(page: Selector, hint: DiscoveredArticle | None) -> str | None:
     return collapse_inline_whitespace(candidates[0]) if candidates else None
 
 
-def extract_published_at(page: Selector, hint: DiscoveredArticle | None) -> datetime | None:
+@lru_cache(maxsize=32)
+def _embedded_date_pattern(key: str) -> re.Pattern[str]:
+    """Match ``"key": "value"`` whether or not the quotes are backslash-escaped.
+
+    A framework that streams its data as a JavaScript string literal ships the
+    payload double-encoded, so the same key appears on the wire as ``\\"key\\"``
+    rather than ``"key"``. One optional backslash before each quote covers both
+    without a second pass over the text.
+
+    The alternation also matches an *unquoted* value (``null``, a bare number).
+    That branch never yields a date -- it exists so a key whose value stopped
+    being a string is seen and refused here, instead of the scan sliding on to
+    the next occurrence of the key and returning some other record's date.
+    """
+    escaped = re.escape(key)
+    return re.compile(
+        rf'\\?"{escaped}\\?"\s*:\s*'
+        rf'(?:\\?"(?P<quoted>[^"\\]{{0,{MAX_EMBEDDED_DATE_CHARS}}})\\?"'
+        rf"|(?P<bare>[A-Za-z0-9_.+-]{{1,{MAX_EMBEDDED_DATE_CHARS}}}))"
+    )
+
+
+def extract_embedded_date(page: Selector, key: str) -> datetime | None:
+    """Publication date from a JSON key inside an embedded ``<script>`` payload.
+
+    For sites that render from a client-side data blob and expose no date in the
+    markup: no ``article:published_time``, no JSON-LD, no ``<time datetime>``.
+    The date is in the page, just not anywhere a CSS selector can reach.
+
+    The payload is untrusted data and is treated as such. It is never evaluated
+    and never deserialized -- only scanned, under a character budget, with a
+    bounded pattern -- and whatever comes back is validated through
+    :func:`~newsletter.ingestion.dates.parse_datetime` like any other date. A
+    string that is not a real timestamp yields ``None``, same as a missing key.
+
+    **The first match wins**, which is what makes this usable on an article page
+    and not on an index page. An article page leads with its own record, so the
+    first occurrence of the key is that article's date; the later ones belong to
+    related-post teasers further down the payload. An index page carries one
+    record per listed item with no such privileged position, so first-match would
+    hand every item the first item's date. Hence this runs during normalization,
+    against a single article, and discovery does not use it.
+    """
+    pattern = _embedded_date_pattern(key)
+    remaining = MAX_EMBEDDED_SCAN_CHARS
+
+    for node in page.css("script"):
+        text = str(node.text or "")
+        if not text:
+            continue
+        if remaining <= 0:
+            logger.warning("embedded date scan hit its %d-char budget", MAX_EMBEDDED_SCAN_CHARS)
+            break
+        match = pattern.search(text[:remaining])
+        remaining -= len(text)
+        if match is None:
+            continue
+        # Found the key. Whatever it holds is the answer, right or wrong: reading
+        # past it would silently pick up a neighbouring record's date.
+        return parse_datetime(match.group("quoted"))
+
+    return None
+
+
+def extract_published_at(
+    page: Selector,
+    hint: DiscoveredArticle | None,
+    source: SourceConfig | None = None,
+) -> datetime | None:
     """The page states its own date; the feed hint is the fallback. Never invented."""
     for selector, attribute in (
         ("meta[property='article:published_time']", "content"),
@@ -275,6 +354,14 @@ def extract_published_at(page: Selector, hint: DiscoveredArticle | None) -> date
             )
             if parsed is not None:
                 return parsed
+
+    # After the standard routes, never before them: a site that publishes a real
+    # metadata contract is more trustworthy than its own rendering internals, so
+    # this can only add a date, never override a correctly declared one.
+    if source is not None and source.embedded_date_key:
+        parsed = extract_embedded_date(page, source.embedded_date_key)
+        if parsed is not None:
+            return parsed
 
     for node in page.css("time"):
         parsed = parse_datetime(node.attrib.get("datetime"))
@@ -365,11 +452,20 @@ def normalize_article(
     if not title:
         raise NormalizationError(raw.source_id, raw.url, "no title could be extracted")
 
-    published_at = extract_published_at(page, hint)
+    published_at = extract_published_at(page, hint, source)
     if published_at is None:
-        raise NormalizationError(
-            raw.source_id, raw.url, "no publication date found; refusing to invent one"
-        )
+        detail = "no publication date found; refusing to invent one"
+        if source.embedded_date_key:
+            # Name the configured key. A source that depends on an embedded payload
+            # breaks the day the site renames or restructures that key, and this
+            # message in the run manifest is how an operator learns which one.
+            detail = (
+                f"no publication date found: embedded key "
+                f"{source.embedded_date_key!r} is missing or does not hold a "
+                f"valid timestamp, and the page states no date otherwise; "
+                f"refusing to invent one"
+            )
+        raise NormalizationError(raw.source_id, raw.url, detail)
 
     clean_text = extract_text(page, source)
     if raw.linked_text:

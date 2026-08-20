@@ -184,6 +184,53 @@ sources:
         load_config(config_dir, env={})
 
 
+def test_embedded_date_key_defaults_to_unset(config_dir: Path) -> None:
+    """Reading a date out of an embedded payload is opt-in, never the default."""
+    write_sources(
+        config_dir,
+        """
+sources:
+  - {id: alpha, name: A, entrypoint: "https://a.example/f", strategy: rss, priority: 5}
+""",
+    )
+    assert load_config(config_dir, env={}).sources[0].embedded_date_key is None
+
+
+def test_embedded_date_key_accepts_a_json_identifier(config_dir: Path) -> None:
+    write_sources(
+        config_dir,
+        """
+sources:
+  - id: alpha
+    name: A
+    entrypoint: "https://a.example/f"
+    strategy: scrapling_static
+    priority: 5
+    embedded_date_key: publishedOn
+""",
+    )
+    assert load_config(config_dir, env={}).sources[0].embedded_date_key == "publishedOn"
+
+
+@pytest.mark.parametrize("bad", ['"pub lished"', '"9lives"', '""', '"a[href]"'])
+def test_embedded_date_key_rejects_a_non_identifier(config_dir: Path, bad: str) -> None:
+    """It names a JSON key, not a selector or a phrase. Bad input fails the load."""
+    write_sources(
+        config_dir,
+        f"""
+sources:
+  - id: alpha
+    name: A
+    entrypoint: "https://a.example/f"
+    strategy: scrapling_static
+    priority: 5
+    embedded_date_key: {bad}
+""",
+    )
+    with pytest.raises(ConfigError, match="embedded_date_key"):
+        load_config(config_dir, env={})
+
+
 def test_unknown_strategy_is_rejected(config_dir: Path) -> None:
     write_sources(
         config_dir,
