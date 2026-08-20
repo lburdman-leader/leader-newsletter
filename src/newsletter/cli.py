@@ -28,6 +28,8 @@ from newsletter.context import RunContext
 from newsletter.ingestion.submissions import SubmissionRejected, create_submission
 from newsletter.logging_setup import configure_logging, get_logger, report, report_plain
 from newsletter.models import DateWindow, SubmissionStatus
+from newsletter.persistence.base import Storage
+from newsletter.persistence.dsn import redact_dsn
 from newsletter.pipeline import (
     NothingToPublish,
     PipelineError,
@@ -151,7 +153,11 @@ def cmd_validate(config: AppConfig) -> int:
         for category in config.newsletter.ordered_categories()
     )
     report(f"Section limits: {limits}")
-    report(f"Output: {config.runtime.output_dir} | database: {config.runtime.db_path}")
+    # The DSN is printed redacted: a connection string carries a password, and
+    # nothing that reaches a terminal or a log may carry it.
+    report(
+        f"Output: {config.runtime.output_dir} | database: {redact_dsn(config.runtime.database_url)}"
+    )
     report(
         "OpenAI key: present"
         if config.runtime.has_openai_key
@@ -193,7 +199,7 @@ def cmd_submit(config: AppConfig, args: argparse.Namespace) -> int:
         print(f"Not accepted: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
-    database = open_database(config)
+    database: Storage = open_database(config)
     try:
         existing = database.get_submission(submission.submission_id)
         decided = existing is not None and existing.status is not SubmissionStatus.PENDING
@@ -229,7 +235,7 @@ def cmd_submit(config: AppConfig, args: argparse.Namespace) -> int:
 
 
 def cmd_submissions(config: AppConfig, args: argparse.Namespace) -> int:
-    database = open_database(config)
+    database: Storage = open_database(config)
     try:
         status = SubmissionStatus(args.status) if args.status else None
         rows = database.list_submissions(status=status, limit=args.limit)
@@ -263,7 +269,7 @@ def cmd_run(config: AppConfig, args: argparse.Namespace) -> int:
     if not args.dry_run:
         report(f"Edition directory: {context.edition_dir}")
 
-    database = None if args.dry_run else open_database(config)
+    database: Storage | None = None if args.dry_run else open_database(config)
     try:
         result = run_pipeline(context, database=database)
     finally:

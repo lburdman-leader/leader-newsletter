@@ -20,6 +20,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 from types import TracebackType
+from typing import TYPE_CHECKING
 
 from newsletter.logging_setup import get_logger
 from newsletter.models import (
@@ -31,6 +32,7 @@ from newsletter.models import (
     Submission,
     SubmissionStatus,
 )
+from newsletter.persistence.base import PersistenceError, Storage
 
 # The identity keys a published story is remembered by are the deduplication
 # keys, so they are defined once, in ranking.dedupe, and read here. The
@@ -127,8 +129,9 @@ CREATE TABLE IF NOT EXISTS run_history (
 """
 
 
-class PersistenceError(Exception):
-    """The database could not be opened, migrated or written."""
+#: ``PersistenceError`` now lives in ``persistence.base`` so every backend raises
+#: the same class; it stays importable from here, where callers already expect it.
+__all__ = ["SCHEMA", "SCHEMA_VERSION", "Database", "PersistenceError"]
 
 
 class Database:
@@ -587,3 +590,9 @@ def _stamp(now: datetime | None) -> str:
     from datetime import UTC
 
     return (now or datetime.now(UTC)).isoformat()
+
+
+if TYPE_CHECKING:  # pragma: no cover - a type-checker assertion, not runtime code
+    # SQLite is the reference implementation of the storage contract: if this
+    # line stops type-checking, either the contract or this class has drifted.
+    _conforms: type[Storage] = Database

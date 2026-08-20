@@ -52,7 +52,8 @@ from newsletter.models import (
 )
 from newsletter.normalization.article import normalize_all
 from newsletter.normalization.filtering import filter_by_window
-from newsletter.persistence.sqlite import Database, PersistenceError
+from newsletter.persistence.base import PersistenceError, Storage
+from newsletter.persistence.factory import create_storage
 from newsletter.ranking.dedupe import PublishedKeys, deduplicate
 from newsletter.ranking.scoring import rank_all
 from newsletter.ranking.selection import (
@@ -91,7 +92,7 @@ class PipelineResult:
         return self.edition is not None and bool(self.outputs)
 
 
-def build_analyzer(config: AppConfig, cache: Database | None) -> ArticleAnalyzer:
+def build_analyzer(config: AppConfig, cache: Storage | None) -> ArticleAnalyzer:
     """Construct the analyzer from configuration. Requires a credential."""
     if not config.runtime.has_openai_key:
         raise PipelineError(
@@ -130,9 +131,14 @@ def build_editor(config: AppConfig) -> NewsletterEditor:
     )
 
 
-def open_database(config: AppConfig) -> Database:
+def open_database(config: AppConfig) -> Storage:
+    """Open the configured database, whichever engine it names.
+
+    The DSN decides; an unknown scheme has already been refused by configuration
+    loading, and is refused again here rather than falling back to a local file.
+    """
     try:
-        return Database(config.runtime.db_path).connect()
+        return create_storage(config.runtime.database_url).connect()
     except PersistenceError as exc:
         raise PipelineError(f"persistence could not initialise: {exc}") from exc
 
@@ -246,7 +252,7 @@ def run_pipeline(
     *,
     analyzer: ArticleAnalyzer | None = None,
     editor: NewsletterEditor | None = None,
-    database: Database | None = None,
+    database: Storage | None = None,
     adapter_factory: AdapterFactory | None = None,
     submission_http: HttpClient | None = None,
     now: datetime | None = None,

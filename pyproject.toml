@@ -27,6 +27,12 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
+# The PostgreSQL driver is optional so a default install stays lean and
+# `import newsletter` never requires it; the factory imports it lazily, and only
+# when the DSN names a Postgres server.
+postgres = [
+    "psycopg[binary]>=3.1,<4",
+]
 
 [project.scripts]
 newsletter = "newsletter.cli:main"

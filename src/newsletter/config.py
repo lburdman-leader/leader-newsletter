@@ -25,6 +25,13 @@ from newsletter.models import (
     ValueModel,
     WindowMode,
 )
+from newsletter.persistence.dsn import (
+    DEFAULT_DATABASE_URL,
+    dsn_for_sqlite_path,
+    is_sqlite,
+    sqlite_path_from_dsn,
+    validate_dsn,
+)
 
 DEFAULT_CONFIG_DIR = Path("config")
 SOURCES_FILE = "sources.yaml"
@@ -183,6 +190,11 @@ class SubmissionSettings(ValueModel):
 class RuntimeSettings(ValueModel):
     """Paths, models and credentials. Populated from the environment."""
 
+    #: Where the database lives, as a connection string, so moving the engine to
+    #: a server is a deployment variable rather than a code change.
+    database_url: str = DEFAULT_DATABASE_URL
+    #: The historical filesystem form, kept working. It stays in step with
+    #: ``database_url``: see :meth:`_reconcile_database_location`.
     db_path: Path = Path("newsletter.sqlite")
     output_dir: Path = Path("output")
     analyzer_model: str = "gpt-4.1-mini"
@@ -191,6 +203,38 @@ class RuntimeSettings(ValueModel):
     request_timeout_seconds: float = Field(default=60.0, gt=0)
     max_retries: int = Field(default=2, ge=0, le=5)
     openai_api_key: SecretStr | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reconcile_database_location(cls, data: Any) -> Any:
+        """Keep ``database_url`` and ``db_path`` describing the same database.
+
+        Two spellings of one setting is a trap unless the tie-break is stated:
+
+        * ``database_url`` wins when it is given, because it is the only spelling
+          that can name a server. For a ``sqlite://`` URL, ``db_path`` is
+          rewritten from it so code reading the path still opens the right file.
+        * ``db_path`` alone is promoted to ``sqlite:///<path>``, so every
+          existing configuration keeps working untouched.
+        * Neither given leaves both at their (matching) defaults.
+
+        Layering is resolved before this runs -- see ``_runtime_from_env`` -- so
+        an environment variable still beats a YAML value of the other spelling.
+        """
+        if not isinstance(data, dict):  # pragma: no cover - pydantic passes a mapping
+            return data
+        values = dict(data)
+        url = str(values.get("database_url") or "").strip()
+        if url:
+            values["database_url"] = validate_dsn(url)
+            if is_sqlite(values["database_url"]):
+                values["db_path"] = Path(sqlite_path_from_dsn(values["database_url"]))
+        else:
+            # An empty value is "unset", exactly as it is for every other override.
+            values.pop("database_url", None)
+            if values.get("db_path") is not None:
+                values["database_url"] = dsn_for_sqlite_path(values["db_path"])
+        return values
 
     @model_validator(mode="after")
     def _check_log_level(self) -> RuntimeSettings:
@@ -268,11 +312,22 @@ def _runtime_from_env(env: Mapping[str, str], overrides: dict[str, Any]) -> Runt
         if raw:
             values[field] = cast(raw) if cast else raw
 
+    take("NEWSLETTER_DATABASE_URL", "database_url")
     take("NEWSLETTER_DB_PATH", "db_path", Path)
     take("NEWSLETTER_OUTPUT_DIR", "output_dir", Path)
     take("OPENAI_ANALYZER_MODEL", "analyzer_model")
     take("OPENAI_EDITOR_MODEL", "editor_model")
     take("LOG_LEVEL", "log_level")
+
+    # The database has two spellings, so the layers have to be untangled before
+    # the model's own tie-break runs: whichever spelling the *environment* gives
+    # names the database, and the other spelling from YAML is discarded rather
+    # than silently overriding it. Within one layer, `database_url` wins,
+    # because it is the only spelling that can name a server.
+    if env.get("NEWSLETTER_DATABASE_URL", "").strip():
+        values.pop("db_path", None)
+    elif env.get("NEWSLETTER_DB_PATH", "").strip():
+        values.pop("database_url", None)
 
     api_key = env.get("OPENAI_API_KEY", "").strip()
     if api_key:
