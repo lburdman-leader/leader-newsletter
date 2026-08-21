@@ -1465,3 +1465,109 @@ than after. Both halves of the pool are ordered before assessment, submissions i
 because assessment order decides the order failures reach the manifest and assessments
 reach the cache, and neither may depend on what ingestion happened to return (AC9).
 
+---
+
+## 2026-08-21 · ADR-0042 · A minimum edition, a pool that remembers, and caps sized for ten
+
+**Decision.** Three coupled changes, after three live runs published 2, 3 and 8 stories
+against a requirement of "at least six, ideally ten".
+
+1. **The caps were rescaled for a ten-story edition.** `section_limits` went from
+   `3/3/3/3/2/2` to `4/4/4/3/3/3`. They were calibrated when `max_items` was 8 and were
+   never revisited when it became 10, so they rationed a ten-slot paper as though it had
+   eight. The *shares* are unchanged — the beat may hold 40% of the paper, the AI
+   categories 30% each — expressed against ten instead of eight.
+2. **`newsletter.min_items` (6).** When the line-up falls below it, the caps that
+   **ration** slots — `section_limits`, `max_per_source`, `max_per_subject` — are raised
+   by one and the whole seating pass is re-run, and again by two, until the edition
+   reaches the minimum, or no rejection carries a rationing reason, or every cap has
+   reached `max_items` and constrains nothing. At most `max_items` steps, usually none.
+3. **Stored in-window articles rejoin the candidate pool**, merged with the freshly
+   fetched ones through `Storage.articles_in_window`.
+
+No model call was added, no prompt or schema changed, `min_score` is still 62, and
+`select()` is still a pure function of its arguments.
+
+**What relaxation may never touch, and why only those.** `min_score` (a thin week must
+not print bad stories), `excluded_categories`, the three deduplication passes, both
+collapse passes, cross-edition suppression and the entity-fidelity guard. The line is the
+same one ADR-0040 drew for reserved slots: rationing divides scarce slots between stories
+that all deserve one, and relaxing it costs heterogeneity; everything else is correctness
+or quality, and relaxing it costs the reader. Structurally, the suppression and collapse
+passes run **once**, before the relaxation loop, so no amount of relaxing can resurrect a
+story an earlier edition printed or a second report of an event already seated.
+
+**Measured, on real articles and real cached assessments.** Rebuilding the distribution
+each live manifest reports:
+
+| Pool | caps 3/3/3/3/2/2 | caps 4/4/4/3/3/3 | + `min_items: 6` |
+|---|---:|---:|---:|
+| 2026-W33 shape (8 above threshold: 7 `ai_models`, 1 beat) | 3 | 4 | **6** (2 steps) |
+| 2026-W34 shape (19 above threshold, six categories) | 9 | 10 | 10 (0 steps) |
+
+The caps alone recover one story; the minimum recovers the rest. On a *diverse* week the
+caps never bind and nothing relaxes, which is the intended shape: relaxation is a
+last resort for a concentrated week, not a routine part of selection.
+
+**Recall is always-on, not opt-in.** An RSS feed carries its last ten to fifty items, so
+any window older than a few days is starved *by construction*: the run re-fetches, the feed
+no longer reaches back that far, and articles the engine already ingested and already paid
+to assess sit unread in the database. An in-window, already-normalized article is a
+legitimate candidate whoever fetched it and whenever, and the alternative — a flag
+defaulting to on — is only a way to reintroduce the bug quietly. The production database
+holds 0, 21 and 186 in-window articles for W32, W33 and W34; the W33 run's feeds could
+still see 12.
+
+**A collision keeps the fresh copy.** `article_id` is `sha256(dedupe_key(canonical_url))`,
+so a stored copy and a freshly fetched one of the same page always share it, and the merge
+resolves that case before deduplication ever runs: the fresh copy carries the current text
+and is exactly what `save_articles` is about to overwrite the stored row with. Collisions
+the id cannot see — one story at two URLs, syndication — fall to the three deterministic
+passes, which decide by rule as they always have. Ordering is total: the fresh pool in its
+own order, then the recalled articles oldest first, ties on `article_id` (AC9).
+
+**Recall forced one accounting fix.** `analysis_pool_max` now counts **cache misses**
+only. The ceiling exists to bound model calls, and a cached assessment is not one;
+counting hits against it would have made recall self-defeating, because a pool of articles
+already paid for — all free — would exhaust the ceiling before a single new story was read.
+`batches()` went with it.
+
+**A relaxed edition is not a finished one.** `SelectionResult.is_complete`, the stopping
+rule for adaptive assessment, now requires `relaxation_steps == 0` as well as full and
+floors met. Otherwise the run would settle at twenty candidates for a line-up the
+configured policy refuses, when reading forty more would have produced one it accepts.
+
+**Visibility** (rule 7). `run_manifest.json` gains `cap_relaxation` — steps, and the caps
+actually in force — present only when something was relaxed, because a relaxed cap prints
+stories the configured policy refused and is indistinguishable from a broken cap
+otherwise. It gains `min_items_unmet`, the sibling of `coverage_floors_unmet`: a week that
+cannot reach six publishes short and says so. And `articles_recalled`, so the pool's two
+halves can be told apart. The entity guard recomputes `min_items_unmet` after it drops a
+story, so the number describes what was printed rather than what was chosen.
+
+**Be honest about the trade-off: a relaxed edition can be a worse edition.** Relaxation
+buys headcount with heterogeneity, and the worst case is real. Reaching six from a pool
+that seated three takes three steps, which puts `section_limits` at 6-7,
+`max_per_source` at 5 and `max_per_subject` at 5 — so a six-story edition *can* be six
+stories on one topic, from two publications, about two companies. That is a paper some
+readers would rather have seen as three heterogeneous stories, and the only defences are
+that it happens solely when the week offers nothing more diverse, that it stops at the
+minimum rather than filling the edition, and that `cap_relaxation` names exactly what was
+given up. If the owner decides headcount was the wrong trade, the fix is one line: cap the
+relaxed `section_limits` at `max_items // 2` and let `min_items_unmet` carry the rest.
+
+**Alternatives.** Remove the caps (ADR-0030 exists because one publisher filled four of
+seven slots); lower `min_score` to reach six (padding, and the owner ruled it out); relax
+only `section_limits` (the W34 shape loses stories to `source_limit` too, so it would have
+been a half-fix); make recall opt-in (above); count cache hits against the analysis cap
+(above).
+
+**Consequences.** `min_items` defaults to 6, but a *default* never exceeds `max_items` —
+an edition deliberately configured smaller simply cannot carry six, and "as many as fit" is
+the only sensible reading; an *explicit* `min_items > max_items` is still refused. A thin
+week now assesses more of its pool than before, because `is_complete` is stricter, and
+that is the cost of not settling early. W32 remains at 2 stories and nothing here can
+change it: no article published 3-9 August was ever ingested, and recall can only return
+what was stored. That is the argument for recall being always-on from now on rather than
+an argument against it.
+

@@ -21,6 +21,13 @@ The rules, applied in order to articles sorted best-first:
 9. respect the per-subject cap, so one company cannot either;
 10. stop at ``max_items``.
 
+Steps 7-9 are *rationing*: they divide scarce slots between stories that all
+deserve one. When the finished line-up falls below ``min_items`` they are relaxed
+a step at a time and the whole seating is re-run, until the edition reaches the
+minimum or no rationed story is left to admit (see :func:`select`). Steps 1, 2, 5
+and 6 are never relaxed, because they are correctness and quality rather than
+rationing.
+
 Every rejection is recorded with its reason, and the reasons that need one carry
 a free-text detail as well. Those same reasons also reach the run manifest, so an
 empty or thin edition can be explained from the artifact instead of guessed at.
@@ -33,7 +40,7 @@ from dataclasses import dataclass, field
 
 from newsletter.config import NewsletterSettings
 from newsletter.logging_setup import get_logger
-from newsletter.models import RankedArticle, RunManifest, TopicCategory
+from newsletter.models import CapRelaxation, RankedArticle, RunManifest, TopicCategory
 from newsletter.ranking.dedupe import (
     PublishedKeys,
     collapse_duplicate_events,
@@ -71,6 +78,12 @@ MANIFEST_REASONS = (
     REASON_SUBJECT_LIMIT,
     REASON_COVERAGE_FLOOR,
 )
+
+#: The rejections a relaxed cap could take back. A line-up that is short of
+#: ``min_items`` and carries none of these is short because the week offered
+#: nothing more, not because anything was rationed -- so relaxing would admit
+#: nobody and the loop stops rather than raising caps for show.
+RATIONING_REASONS = frozenset({REASON_CATEGORY_LIMIT, REASON_SOURCE_LIMIT, REASON_SUBJECT_LIMIT})
 
 #: Marks a manifest record as a reader submission's. While slots are reserved,
 #: *every* rejected submission is recorded, whatever the reason: a slot the reader
@@ -119,6 +132,15 @@ class SelectionResult:
     floors_unmet: dict[str, int] = field(default_factory=dict)
     #: Whether the line-up reached ``max_items``.
     full: bool = False
+    #: How many times every rationing cap was raised by one before this line-up
+    #: was seated. ``0`` -- the ordinary case -- means the configured caps stood.
+    relaxation_steps: int = 0
+    #: The caps that were actually in force, once relaxed. ``None`` when nothing
+    #: was relaxed and the configured policy is the whole story.
+    relaxed_settings: NewsletterSettings | None = None
+    #: How many stories short of ``min_items`` the line-up finished, after every
+    #: relaxation available. Nothing is padded to close it.
+    items_short: int = 0
 
     @property
     def reserved_ids(self) -> set[str]:
@@ -129,12 +151,16 @@ class SelectionResult:
     def is_complete(self) -> bool:
         """Nothing more to gain from assessing another candidate.
 
-        The stopping rule for adaptive assessment, and deliberately *both*
-        conditions: an edition that is full of stories from the wrong beat is not
+        The stopping rule for adaptive assessment, and deliberately *three*
+        conditions. An edition that is full of stories from the wrong beat is not
         finished, and stopping on "ten of anything" is exactly how a bounded pool
-        would make a coverage floor unsatisfiable.
+        would make a coverage floor unsatisfiable. And an edition that needed its
+        caps relaxed is not finished either: relaxation is the last resort for a
+        week that has nothing more to offer, so while the pool still has unread
+        candidates the right move is to read them, not to settle for a line-up
+        the configured policy would have refused.
         """
-        return self.full and not self.floors_unmet
+        return self.full and not self.floors_unmet and not self.relaxation_steps
 
     @property
     def lead(self) -> RankedArticle | None:
@@ -478,6 +504,22 @@ def select(
     ``max_items``" and ``0`` meaning "none, everything competes on score". Both
     are arguments rather than settings for the same reason ``published`` is: they
     describe this run, and this module must not have to ask anything about it.
+
+    **A minimum edition, reached by relaxing rationing and nothing else.** The
+    caps that divide scarce slots between competing stories were calibrated for a
+    smaller edition than the one now published, and a week can clear the score
+    threshold eight times over and still print three of them. So the seating pass
+    is re-run with every rationing cap raised by one, and again by two, until the
+    line-up reaches ``settings.min_items`` -- or until no rejection carries a
+    rationing reason, which means nothing is being held back and another step
+    would admit nobody, or until every cap has reached ``max_items``, at which
+    point relaxation has no further meaning. The loop therefore terminates in at
+    most ``max_items`` steps and usually in none.
+
+    What relaxation cannot touch is the whole point of it: the preamble above --
+    cross-edition suppression and both collapse passes -- runs once, before any of
+    this, and ``min_score`` and ``excluded_categories`` are re-read from the
+    unchanged ``settings`` on every attempt. A short week publishes short.
     """
     candidates: Sequence[RankedArticle] = sorted(ranked, key=ranking_key)
     result = SelectionResult()
@@ -531,33 +573,59 @@ def select(
         )
 
     excluded = set(settings.excluded_categories)
+    # Everything above is correctness, runs once, and is never revisited: a
+    # relaxed cap must not resurrect a story a previous edition printed or a
+    # duplicate report of an event already in the line-up.
+    preamble = list(result.rejected)
 
-    # The reserved slots are seated first, and they hold their places against the
-    # caps, so everything below fills only what is genuinely left.
-    result.reserved = reserve(
-        candidates,
-        settings,
-        source_id=reserved_source,
-        slots=reserved_slots,
-        excluded=excluded,
-    )
-    reserved_ids = result.reserved_ids
+    step = 0
+    while True:
+        active = settings.relaxed(step)
+        attempt: list[RejectedArticle] = []
 
-    # Then the coverage floors, which is what lets a lower-scoring story from the
-    # publication's own beat take a slot ahead of a higher-scoring one from
-    # elsewhere. Reserved slots are seated before them and never displaced by
-    # them: a floor is best-effort against the slots submissions leave free.
-    floor_seats, result.floors_unmet = fill_floors(candidates, settings, reserved=result.reserved)
-    preseated = [*result.reserved, *(article for _, article in floor_seats)]
+        # The reserved slots are seated first, and they hold their places against
+        # the caps, so everything below fills only what is genuinely left.
+        reserved = reserve(
+            candidates,
+            active,
+            source_id=reserved_source,
+            slots=reserved_slots,
+            excluded=excluded,
+        )
 
-    seated, result.above_threshold = _seat_earned(
-        candidates,
-        settings,
-        preseated=preseated,
-        excluded=excluded,
-        rejected=result.rejected,
-    )
+        # Then the coverage floors, which is what lets a lower-scoring story from
+        # the publication's own beat take a slot ahead of a higher-scoring one
+        # from elsewhere. Reserved slots are seated before them and never
+        # displaced by them: a floor is best-effort against the slots submissions
+        # leave free.
+        floor_seats, floors_unmet = fill_floors(candidates, active, reserved=reserved)
+        preseated = [*reserved, *(article for _, article in floor_seats)]
+
+        seated, above_threshold = _seat_earned(
+            candidates,
+            active,
+            preseated=preseated,
+            excluded=excluded,
+            rejected=attempt,
+        )
+
+        if len(seated) >= settings.min_items:
+            break
+        if not any(item.reason in RATIONING_REASONS for item in attempt):
+            break  # nothing was rationed; the week simply has no more to give
+        if active == settings.relaxed(step + 1):
+            break  # every cap already stands at max_items and constrains nothing
+        step += 1
+
+    result.rejected = [*preamble, *attempt]
+    result.reserved = reserved
+    result.floors_unmet = floors_unmet
+    result.above_threshold = above_threshold
     result.full = len(seated) >= settings.max_items
+    result.relaxation_steps = step
+    result.relaxed_settings = active if step else None
+    result.items_short = max(settings.min_items - len(seated), 0)
+    reserved_ids = result.reserved_ids
 
     # Print order is the documented one -- reserved first, then everything else
     # best-first -- so a floor changes *which* stories run, never the order they
@@ -569,9 +637,9 @@ def select(
     # nothing and is recorded as nothing. What an operator has to be able to see
     # is the story a floor actually took the slot of, so it is derived exactly:
     # the same pass, run once without the floors, names the line-up that would
-    # have been printed instead.
+    # have been printed instead -- under the caps that actually seated it.
     if floor_seats:
-        _record_floor_cost(result, candidates, settings, floor_seats, excluded=excluded)
+        _record_floor_cost(result, candidates, active, floor_seats, excluded=excluded)
 
     if manifest is not None:
         manifest.articles_above_threshold = result.above_threshold
@@ -580,6 +648,17 @@ def select(
         # A floor the week could not fill has no story to attach itself to, so it
         # is the one omission `withheld` cannot express and it gets its own line.
         manifest.coverage_floors_unmet = dict(result.floors_unmet)
+        # Relaxed caps print stories the configured policy refused, which reads as
+        # a broken cap unless the operator can see it happen and by how much.
+        manifest.min_items_unmet = result.items_short
+        if result.relaxed_settings is not None:
+            manifest.cap_relaxation = CapRelaxation(
+                steps=result.relaxation_steps,
+                min_items=settings.min_items,
+                section_limits=dict(result.relaxed_settings.section_limits),
+                max_per_source=result.relaxed_settings.max_per_source,
+                max_per_subject=result.relaxed_settings.max_per_subject,
+            )
         # Rule 7: nothing is dropped silently, and the console is not an audit
         # surface. A withheld story is not a failure, so it is recorded as an
         # omission rather than an error, which would mark a healthy run as failed.
@@ -604,9 +683,10 @@ def select(
             )
 
     logger.info(
-        "selection: %d selected (%d reserved) of %d above threshold (%s)",
+        "selection: %d selected (%d reserved, caps relaxed %d) of %d above threshold (%s)",
         len(result.selected),
         len(result.reserved),
+        result.relaxation_steps,
         result.above_threshold,
         result.reasons() or "no rejections",
     )

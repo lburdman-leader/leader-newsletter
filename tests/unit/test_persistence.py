@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -10,6 +10,7 @@ import pytest
 from newsletter.models import (
     ArticleAssessment,
     AssessmentRecord,
+    DateWindow,
     NewsletterEdition,
     NewsletterItem,
     NewsletterSection,
@@ -195,6 +196,37 @@ def test_articles_can_be_found_by_content_hash(db: Database) -> None:
     db.save_article(make_article("a1"), now=NOW)
     assert db.find_article_by_hash("contenthash-a1").article_id == "a1"
     assert db.find_article_by_hash("nope") is None
+
+
+def test_stored_articles_are_recalled_by_window_on_the_same_half_open_bounds(
+    db: Database,
+) -> None:
+    """The recall query is the hard date filter, asked of the database.
+
+    The bound is ``[start, end)``, and it is an *instant* comparison: the stored
+    timestamps carry their own UTC offsets, so a backend comparing ISO strings has
+    to widen its query and finish the job in Python. The article written in a
+    non-UTC offset is what catches that going wrong.
+    """
+    window = DateWindow(
+        start=datetime(2026, 8, 17, tzinfo=UTC), end=datetime(2026, 8, 24, tzinfo=UTC)
+    )
+    db.save_articles(
+        [
+            make_article("before", published_at=datetime(2026, 8, 16, 23, tzinfo=UTC)),
+            make_article("at-start", published_at=datetime(2026, 8, 17, tzinfo=UTC)),
+            make_article(
+                "offset",
+                published_at=datetime(2026, 8, 18, 9, tzinfo=timezone(timedelta(hours=-3))),
+            ),
+            make_article("at-end", published_at=datetime(2026, 8, 24, tzinfo=UTC)),
+        ]
+    )
+
+    recalled = db.articles_in_window(window)
+
+    assert [article.article_id for article in recalled] == ["at-start", "offset"]
+    assert all(article.published_at.tzinfo is not None for article in recalled)
 
 
 def test_missing_records_return_none(db: Database) -> None:

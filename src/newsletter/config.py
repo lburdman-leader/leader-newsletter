@@ -96,6 +96,17 @@ class NewsletterSettings(ValueModel):
     window_mode: WindowMode = WindowMode.ROLLING
 
     max_items: int = Field(default=8, ge=1, le=50)
+    #: The smallest edition worth printing. When the line-up comes up short, the
+    #: caps that *ration* slots -- ``section_limits``, ``max_per_source`` and
+    #: ``max_per_subject`` -- are relaxed one step at a time and the edition is
+    #: re-seated, until it reaches this many stories or no rationed story is left
+    #: to admit. Nothing that protects correctness or quality is ever relaxed:
+    #: ``min_score``, ``excluded_categories``, deduplication, both collapse
+    #: passes, cross-edition suppression and the entity-fidelity guard all stand.
+    #: A week that genuinely offers less publishes short and records the
+    #: shortfall. ``0`` switches the minimum off and restores the caps' authority
+    #: absolutely.
+    min_items: int = Field(default=6, ge=0, le=50)
     min_score: int = Field(default=70, ge=0, le=100)
     #: Collapse several articles covering one event, using the analyzer fingerprint.
     collapse_events: bool = True
@@ -146,6 +157,25 @@ class NewsletterSettings(ValueModel):
     #: Categories never published, even when they score well.
     excluded_categories: list[TopicCategory] = Field(default_factory=lambda: [TopicCategory.OTHER])
 
+    @model_validator(mode="before")
+    @classmethod
+    def _fit_default_minimum(cls, data: Any) -> Any:
+        """A *default* minimum never exceeds the edition it is a minimum for.
+
+        ``min_items`` defaults to six, but an edition deliberately configured
+        smaller than six is not misconfigured -- it simply cannot carry six, and
+        "as many as fit" is the only reading of the default that makes sense. An
+        explicitly configured ``min_items`` above ``max_items`` is a different
+        thing and is still refused below, because nobody means it.
+        """
+        if not isinstance(data, dict) or data.get("min_items") is not None:
+            return data
+        max_items = data.get("max_items")
+        default = cls.model_fields["min_items"].default
+        if isinstance(max_items, int) and max_items < default:
+            return {**data, "min_items": max_items}
+        return data
+
     @model_validator(mode="after")
     def _check(self) -> NewsletterSettings:
         try:
@@ -155,6 +185,11 @@ class NewsletterSettings(ValueModel):
         for category, limit in self.section_limits.items():
             if limit < 0:
                 raise ValueError(f"section_limits[{category.value}] must be >= 0")
+
+        if self.min_items > self.max_items:
+            # Otherwise every edition is permanently short and every run relaxes
+            # its caps to the maximum trying to reach a number it cannot reach.
+            raise ValueError(f"min_items {self.min_items} exceeds max_items {self.max_items}")
 
         excluded = set(self.excluded_categories)
         for name, floor in self.coverage_floors.items():
@@ -190,6 +225,46 @@ class NewsletterSettings(ValueModel):
         behaviour this engine had before the pool was bounded.
         """
         return self.analysis_pool_max or None
+
+    def relaxed(self, step: int) -> NewsletterSettings:
+        """This policy with every *rationing* cap raised by ``step``.
+
+        The caps exist to ration scarce slots between competing stories, and they
+        were calibrated for a smaller edition than the one now published. When a
+        week's line-up falls below ``min_items``, raising them by one is the
+        smallest editorial concession available: it admits one more story per
+        category, per source and per company, and it admits nothing that was not
+        already publishable.
+
+        **Exactly three fields move.** ``min_score``, ``excluded_categories``,
+        ``max_items``, ``coverage_floors`` and every collapse and suppression
+        switch are copied through untouched, so no amount of relaxation can print
+        a story the rubric refused, a category the owner excluded, or an eleventh
+        item. A cap never rises above ``max_items``, which is the point at which
+        it stops constraining anything at all -- so :meth:`relaxed` reaches a
+        fixed point and the caller's loop is guaranteed to terminate.
+        """
+        if step <= 0:
+            return self
+        ceiling = self.max_items
+        return self.model_copy(
+            update={
+                "section_limits": {
+                    category: min(limit + step, ceiling)
+                    for category, limit in self.section_limits.items()
+                },
+                "max_per_source": (
+                    None
+                    if self.max_per_source is None
+                    else min(self.max_per_source + step, ceiling)
+                ),
+                "max_per_subject": (
+                    None
+                    if self.max_per_subject is None
+                    else min(self.max_per_subject + step, ceiling)
+                ),
+            }
+        )
 
     def title_for(self, category: TopicCategory) -> str:
         return self.section_titles.get(category) or DEFAULT_SECTION_TITLES[category]

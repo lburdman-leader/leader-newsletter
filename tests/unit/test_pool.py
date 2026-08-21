@@ -1,18 +1,18 @@
-"""The assessed pool: which candidates a bounded run reads, and in what order.
+"""The candidate pool: what it contains, and in what order a bounded run reads it.
 
 The cap turns exhaustive rating into sampling, so the order is editorial policy.
-These tests pin the two properties that make the sampling defensible: no source is
-starved by a budget, and the same pool always produces the same batches (AC9).
+These tests pin the properties that make the pool defensible: no source is starved
+by a budget, an article the engine already ingested rejoins the pool rather than
+being lost with the feed that carried it, and the same inputs always produce the
+same order (AC9).
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
 from newsletter.models import NormalizedArticle
-from newsletter.ranking.pool import batches, round_robin, split_reserved
+from newsletter.ranking.pool import merge_stored, round_robin, split_reserved
 
 BASE = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 
@@ -105,19 +105,41 @@ def test_with_no_reserved_source_everything_is_budgeted() -> None:
     assert reserved == [] and rest == pool
 
 
-@pytest.mark.parametrize(
-    ("total", "cap", "expected"),
-    [
-        # The cap bites: the last batch is short rather than overshooting it.
-        (117, 50, [(0, 20), (20, 40), (40, 50)]),
-        # No cap: every candidate is batched, exhaustively.
-        (45, None, [(0, 20), (20, 40), (40, 45)]),
-        # A pool smaller than one batch is a single batch.
-        (7, 50, [(0, 7)]),
-        (0, 50, []),
-    ],
-)
-def test_batch_boundaries_are_arithmetic_not_luck(
-    total: int, cap: int | None, expected: list[tuple[int, int]]
-) -> None:
-    assert batches(total, size=20, cap=cap) == expected
+# --------------------------------------------------------------------------- #
+# recall — the pool is not only what today's feeds still carry
+# --------------------------------------------------------------------------- #
+
+
+def test_a_stored_in_window_article_rejoins_the_pool() -> None:
+    """The whole point: a feed that has rolled past a story does not lose it."""
+    fresh = [make_article("today", "wire")]
+    stored = [make_article("last-week", "trade", age_hours=100)]
+
+    assert ids(merge_stored(fresh, stored)) == ["today", "last-week"]
+
+
+def test_a_freshly_fetched_copy_wins_over_the_stored_one() -> None:
+    """``article_id`` is the canonical URL, so the two are the same page.
+
+    The fresh copy carries the current text and is what ``save_articles`` is about
+    to overwrite the stored row with; preferring the stored one would republish
+    text the source has since changed.
+    """
+    fresh = make_article("same", "wire")
+    stale = fresh.model_copy(update={"title": "An older headline"})
+
+    merged = merge_stored([fresh], [stale])
+
+    assert merged == [fresh]
+
+
+def test_recall_order_is_data_driven_and_survives_a_reversed_input() -> None:
+    """AC9 reaches the merge: set iteration never decides what the pool looks like."""
+    fresh = [make_article("fresh", "wire")]
+    stored = [
+        make_article("older", "trade", age_hours=50),
+        make_article("newer", "trade", age_hours=10),
+    ]
+
+    assert ids(merge_stored(fresh, stored)) == ["fresh", "older", "newer"]
+    assert ids(merge_stored(fresh, list(reversed(stored)))) == ["fresh", "older", "newer"]

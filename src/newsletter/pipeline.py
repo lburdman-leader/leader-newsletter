@@ -56,7 +56,7 @@ from newsletter.normalization.filtering import filter_by_window
 from newsletter.persistence.base import PersistenceError, Storage
 from newsletter.persistence.factory import create_storage
 from newsletter.ranking.dedupe import PublishedKeys, deduplicate
-from newsletter.ranking.pool import batches, round_robin, split_reserved
+from newsletter.ranking.pool import merge_stored, round_robin, split_reserved
 from newsletter.ranking.scoring import rank_all
 from newsletter.ranking.selection import (
     REASON_ALREADY_PUBLISHED,
@@ -275,6 +275,11 @@ def analyze_pool(
     * **The rest is ordered round-robin across sources** (see
       :mod:`newsletter.ranking.pool`), so the cap trims the eleventh story from
       one outlet rather than every story from a whole beat.
+    * **Only a cache miss spends the budget.** The ceiling exists to bound model
+      calls, and a cached assessment is not one. Counting hits against it would
+      make recall self-defeating: a pool of articles the engine already paid to
+      assess -- all free -- would exhaust the ceiling before a single new story
+      was read.
 
     ``analysis_pool_max`` of ``0`` or ``None`` restores the exhaustive behaviour
     exactly: one pass over the pool in its original order, with no probing.
@@ -300,21 +305,32 @@ def analyze_pool(
         attempted += len(reserved)
         report(f"{len(reserved)} reader submissions assessed ahead of the pool")
 
-    for start, end in batches(len(ordered), size=budget.settings.analysis_pool_min, cap=cap):
+    size = max(budget.settings.analysis_pool_min, 1)
+    spent = 0
+    start = 0
+    while start < len(ordered) and spent < cap:
+        end = min(start + size, len(ordered))
+        called = manifest.llm_calls
         assessed.extend(
             analyzer.analyze_all(ordered[start:end], budget.sources, manifest=manifest, now=now)
         )
+        spent += manifest.llm_calls - called
         attempted += end - start
+        start = end
         if budget.probe(assessed):
             break
 
     manifest.articles_analyzed = attempted
-    report(f"{attempted} of {len(candidates)} candidates assessed (cap {cap})")
+    report(f"{attempted} of {len(candidates)} candidates assessed ({spent} of {cap} calls spent)")
     return assessed
 
 
 def drop_unsupported_stories(
-    selection: SelectionResult, *, manifest: RunManifest, now: datetime
+    selection: SelectionResult,
+    *,
+    manifest: RunManifest,
+    min_items: int = 0,
+    now: datetime,
 ) -> int:
     """Remove selected stories whose analyst prose names an entity their source does not.
 
@@ -328,6 +344,12 @@ def drop_unsupported_stories(
     that says whether a reader's reserved slot went empty — and on the console
     and in the selection's own rejection reasons. Returns how many stories were
     dropped.
+
+    ``min_items`` is passed so the manifest's shortfall stays true: a guard that
+    drops two stories from a line-up of six has made the edition short, and the
+    number recorded at selection time no longer describes what is printed. The
+    guard never relaxes anything to make up the loss -- corrupted prose is a
+    defect, and a headcount is not a reason to print one.
     """
     kept: list[RankedArticle] = []
     reserved_ids = selection.reserved_ids
@@ -367,6 +389,8 @@ def drop_unsupported_stories(
         ]
         manifest.articles_selected = len(kept)
         manifest.articles_reserved = len(selection.reserved)
+        selection.items_short = max(min_items - len(kept), 0)
+        manifest.min_items_unmet = selection.items_short
     return dropped
 
 
@@ -445,8 +469,22 @@ def run_pipeline(
 
     # -- hard filter (AC6) -------------------------------------------------- #
     in_window, outside = filter_by_window(normalized, window)
+    fetched_in_window = len(in_window)
+    report(f"{fetched_in_window} inside the date window ({len(outside)} outside)")
+
+    # -- recall (the pool is not only what today's feeds still carry) ------- #
+    # A feed holds its last ten to fifty items, so any window older than a few
+    # days is starved by construction however well the fetch works. An in-window
+    # article the engine already ingested is a legitimate candidate, and one it
+    # already assessed costs nothing to reconsider, so storage joins the pool
+    # unconditionally. The three deduplication passes below own the overlap.
+    if database is not None:
+        in_window = merge_stored(in_window, database.articles_in_window(window))
+    manifest.articles_recalled = len(in_window) - fetched_in_window
     manifest.articles_in_window = len(in_window)
-    report(f"{len(in_window)} inside the date window ({len(outside)} outside)")
+    if manifest.articles_recalled:
+        report(f"{manifest.articles_recalled} further in-window articles recalled from storage")
+
     if not in_window:
         raise NothingToPublish("no article falls inside the configured date window")
 
@@ -540,6 +578,21 @@ def run_pipeline(
             f"coverage floor {name!r} unmet: {short} short. "
             "The week offered no further qualifying story; nothing was padded."
         )
+    if selection.relaxed_settings is not None:
+        report(
+            f"rationing caps relaxed {selection.relaxation_steps} step(s) to reach "
+            f"min_items {config.newsletter.min_items}: sections "
+            f"{ {c.value: n for c, n in selection.relaxed_settings.section_limits.items()} }, "
+            f"per source {selection.relaxed_settings.max_per_source}, "
+            f"per subject {selection.relaxed_settings.max_per_subject}. "
+            "No score, category or duplicate rule moved."
+        )
+    if selection.items_short:
+        report_failure(
+            f"edition is {selection.items_short} short of min_items "
+            f"{config.newsletter.min_items}. The week offered no further qualifying "
+            "story; nothing was padded."
+        )
     if selection.reserved:
         report(
             f"{len(selection.reserved)} reader submissions took a reserved slot; "
@@ -558,7 +611,9 @@ def run_pipeline(
 
     # -- entity fidelity, before the editor sees anything ------------------- #
     if config.newsletter.check_entity_fidelity:
-        drop_unsupported_stories(selection, manifest=manifest, now=stamp)
+        drop_unsupported_stories(
+            selection, manifest=manifest, min_items=config.newsletter.min_items, now=stamp
+        )
         if selection.is_empty:
             context.finish(now=stamp)
             if database is not None:

@@ -18,6 +18,18 @@ newsletter:
   # submissions take their slots out of these ten before the rubric fills the
   # rest (see `submissions.reserved_slots`).
   max_items: 10
+
+  # The smallest edition worth printing. Below this the caps that RATION slots --
+  # section_limits, max_per_source, max_per_subject -- are relaxed one step at a
+  # time and the edition is re-seated, until it reaches six stories or no rationed
+  # story is left to admit. What is never relaxed is everything that protects
+  # correctness and quality: min_score, excluded_categories, the three
+  # deduplication passes, both collapse passes, the "printed only once" guarantee
+  # and the entity-fidelity guard. A thin week publishes short and records the
+  # shortfall in `min_items_unmet`; when a cap was relaxed, `cap_relaxation` in
+  # run_manifest.json names how far and to what. Nothing is ever padded.
+  min_items: 6
+
   # Recalibrated for the v2 rubric, which asks what a story means for THIS
   # company rather than for a general tech reader. Across 43 real articles the
   # old rubric topped out at 88 and the new one at 68, so 70 published nothing.
@@ -66,14 +78,23 @@ newsletter:
 
   # Caps that stop one topic monopolising the edition.
   # Weighted towards what this company lives on: YouTube and children's
-  # content first, AI tooling second, general AI business last.
+  # content first, AI tooling and general AI business behind them.
+  #
+  # Rescaled for a ten-story edition. These were calibrated when max_items was 8
+  # and were never revisited when it became 10, so they rationed a ten-slot paper
+  # as though it had eight: on 2026-W33 eight stories cleared min_score and the
+  # `ai_models: 2` cap threw five of them away, and the edition printed three.
+  # The shares are what they always were -- the beat may hold up to 40% of the
+  # paper, the AI categories 30% each -- expressed against ten instead of eight:
+  # 3/8 becomes 4/10 and 2/8 becomes 3/10. No single category can reach half the
+  # edition, and no combination of two can fill it.
   section_limits:
-    youtube_platform: 3
-    youtube_monetization: 3
-    kids_content: 3
+    youtube_platform: 4
+    youtube_monetization: 4
+    kids_content: 4
     ai_video: 3
-    ai_models: 2
-    ai_business: 2
+    ai_models: 3
+    ai_business: 3
 
   # The mirror image of section_limits: a named group of categories the edition
   # must carry a MINIMUM of, so a week dominated by general AI news cannot leave

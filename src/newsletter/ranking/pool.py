@@ -1,4 +1,4 @@
-"""The order candidates are assessed in, and how many of them are.
+"""What the candidate pool contains, and the order it is assessed in.
 
 Assessment is the expensive stage: one model call per candidate, and a real week
 produces well over a hundred candidates for an edition of ten. Bounding that pool
@@ -16,6 +16,9 @@ last slot still favours the more trusted publication.
 
 Every tie is broken by data (``article_id``), never by dictionary or set order, so
 the same pool always yields the same order and the same batches (AC9).
+
+:func:`merge_stored` is the other half: what the pool is made of before any of
+that ordering applies.
 """
 
 from __future__ import annotations
@@ -79,11 +82,33 @@ def split_reserved(
     return reserved, rest
 
 
-def batches(total: int, *, size: int, cap: int | None) -> list[tuple[int, int]]:
-    """The half-open slices the pool is assessed in, largest index last.
+def merge_stored(
+    fresh: Sequence[NormalizedArticle], stored: Iterable[NormalizedArticle]
+) -> list[NormalizedArticle]:
+    """The run's candidate pool: what this run fetched, plus what earlier runs did.
 
-    A pure function of three numbers, so the batch boundaries of a run can be
-    reasoned about -- and tested -- without assessing anything.
+    An RSS feed carries its last ten to fifty items, so a window more than a few
+    days old is starved by construction: the run re-fetches, the feed no longer
+    reaches back that far, and articles the engine already ingested and paid to
+    assess sit in the database unread. An article that is inside the window and
+    already normalized is a legitimate candidate whoever fetched it and whenever,
+    so it rejoins the pool.
+
+    **A collision keeps the fresh copy.** ``article_id`` is derived from the
+    canonical URL, so a stored copy and a freshly fetched one of the same page
+    always share it -- and the fresh copy is the current text, the current title
+    and the current ``retrieved_at``, which is also exactly what ``save_articles``
+    is about to overwrite the stored row with. Preferring the stored copy would
+    republish text the source has since changed. Collisions the id cannot see --
+    the same story at two URLs, or syndicated -- are left to the three
+    deterministic deduplication passes, which run next and decide by rule.
+
+    Order is total and stable (AC9): the fresh pool in its own order, then the
+    recalled articles oldest first with ties broken on ``article_id``.
     """
-    budget = total if cap is None else min(total, cap)
-    return [(start, min(start + size, budget)) for start in range(0, budget, max(size, 1))]
+    fetched = {article.article_id for article in fresh}
+    recalled = sorted(
+        (article for article in stored if article.article_id not in fetched),
+        key=lambda article: (article.published_at, article.article_id),
+    )
+    return [*fresh, *recalled]

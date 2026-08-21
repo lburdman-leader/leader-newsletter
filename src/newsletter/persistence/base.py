@@ -32,6 +32,7 @@ from typing import Protocol, runtime_checkable
 
 from newsletter.models import (
     AssessmentRecord,
+    DateWindow,
     NewsletterEdition,
     NormalizedArticle,
     RunManifest,
@@ -84,6 +85,20 @@ class Storage(Protocol):
 
     def save_articles(self, articles: Iterable[NormalizedArticle]) -> int:
         """Store many articles; returns how many had not been seen before."""
+        ...
+
+    def articles_in_window(self, window: DateWindow) -> list[NormalizedArticle]:
+        """Every stored article published inside ``window``, oldest first, then by id.
+
+        Part of the contract rather than a read-back helper, because the running
+        edition depends on it: a feed carries only its last handful of items, so
+        without recall a window more than a few days old can never see the
+        articles the engine already ingested for it.
+
+        The window bound is the same half-open ``[start, end)`` test the hard
+        date filter applies, so a backend may not widen or narrow it, and the
+        order must be total so the merged candidate pool is stable (AC9).
+        """
         ...
 
     # -- assessments (the analyzer cache) ----------------------------------- #

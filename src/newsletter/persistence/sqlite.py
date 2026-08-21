@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING
@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from newsletter.logging_setup import get_logger
 from newsletter.models import (
     AssessmentRecord,
+    DateWindow,
     NewsletterEdition,
     NormalizedArticle,
     RunManifest,
@@ -42,6 +43,12 @@ from newsletter.ranking.dedupe import PublishedKeys
 logger = get_logger("persistence")
 
 SCHEMA_VERSION = 2
+
+#: How far the stored-article window query reaches past the window itself. Stored
+#: timestamps carry their own UTC offset, which spans at most +/-14 hours, so a
+#: day is comfortably more than a string comparison can be wrong by -- and the
+#: exact bound is applied in Python afterwards.
+_WINDOW_SLACK = timedelta(days=1)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -315,6 +322,35 @@ class Database:
             .fetchone()
         )
         return NormalizedArticle.model_validate_json(row["payload"]) if row else None
+
+    def articles_in_window(self, window: DateWindow) -> list[NormalizedArticle]:
+        """Every stored article published inside ``window``, oldest first, then by id.
+
+        ``published_at`` is stored as an ISO string carrying *its own* UTC offset,
+        so comparing strings is only an approximation of comparing instants: the
+        same moment written ``+00:00`` and ``-03:00`` sorts three hours apart. The
+        SQL bound is therefore widened by a day -- more than any real offset, and
+        enough to keep the index useful on a growing table -- and the authoritative
+        test is :meth:`DateWindow.contains`, the same one the hard date filter
+        applies, run here in Python over the widened set.
+        """
+        low = (window.start - _WINDOW_SLACK).astimezone(UTC).isoformat()
+        high = (window.end + _WINDOW_SLACK).astimezone(UTC).isoformat()
+        rows = (
+            self._require_connection()
+            .execute(
+                "SELECT payload FROM articles WHERE published_at >= ? AND published_at <= ? "
+                "ORDER BY published_at, article_id",
+                (low, high),
+            )
+            .fetchall()
+        )
+        articles = [NormalizedArticle.model_validate_json(row["payload"]) for row in rows]
+        inside = [article for article in articles if window.contains(article.published_at)]
+        # Re-sorted on the parsed instants: the SQL order is over strings whose
+        # offsets differ, which is close but not the total order the pool needs.
+        inside.sort(key=lambda article: (article.published_at, article.article_id))
+        return inside
 
     def count_articles(self) -> int:
         return int(

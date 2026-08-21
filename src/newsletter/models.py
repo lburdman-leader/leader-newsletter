@@ -489,6 +489,26 @@ class WithheldStory(ValueModel):
     detail: str | None = None
 
 
+class CapRelaxation(ValueModel):
+    """How far the rationing caps were relaxed to reach ``newsletter.min_items``.
+
+    A relaxed edition carries stories the configured caps would have refused, and
+    that is indistinguishable from a broken cap unless it is written down. This
+    is the record: how many steps were taken, and the caps that were actually in
+    force when the line-up was seated. Absent from the manifest when the caps were
+    never relaxed, which is the ordinary case.
+    """
+
+    #: How many times every rationing cap was raised by one.
+    steps: int = Field(ge=1)
+    #: The minimum the relaxation was reaching for.
+    min_items: int = Field(ge=0)
+    #: The caps as they stood for the printed line-up, after relaxation.
+    section_limits: dict[TopicCategory, int] = Field(default_factory=dict)
+    max_per_source: int | None = None
+    max_per_subject: int | None = None
+
+
 class RunManifest(MutableModel):
     """Machine-readable record of one run."""
 
@@ -504,6 +524,11 @@ class RunManifest(MutableModel):
     sources_failed: int = 0
     articles_discovered: int = 0
     articles_in_window: int = 0
+    #: How many of ``articles_in_window`` came out of storage rather than out of
+    #: this run's fetch. A feed holds its last 10-50 items, so an older window is
+    #: starved unless what was already ingested rejoins the pool; the figure is
+    #: what that recall actually contributed.
+    articles_recalled: int = 0
     articles_after_deduplication: int = 0
     llm_cache_hits: int = 0
     llm_calls: int = 0
@@ -523,6 +548,13 @@ class RunManifest(MutableModel):
     #: short. The one omission :class:`WithheldStory` cannot express, because a
     #: story that was never in the pool has no id, url or title to record.
     coverage_floors_unmet: dict[str, int] = Field(default_factory=dict)
+    #: How many stories short of ``newsletter.min_items`` the edition was printed,
+    #: after every relaxation the caps allowed. The sibling of
+    #: ``coverage_floors_unmet``: nothing is padded to close it, so a genuinely
+    #: thin week says so here instead of inventing a story.
+    min_items_unmet: int = 0
+    #: Present only when the rationing caps were relaxed to reach ``min_items``.
+    cap_relaxation: CapRelaxation | None = None
     newsletter_generated: bool = False
 
     analyzer_model: str | None = None

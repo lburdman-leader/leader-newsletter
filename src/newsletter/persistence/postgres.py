@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any
 from newsletter.logging_setup import get_logger
 from newsletter.models import (
     AssessmentRecord,
+    DateWindow,
     NewsletterEdition,
     NormalizedArticle,
     RunManifest,
@@ -359,6 +360,22 @@ class PostgresStorage:
             (content_hash,),
         )
         return NormalizedArticle.model_validate_json(row["payload"]) if row else None
+
+    def articles_in_window(self, window: DateWindow) -> list[NormalizedArticle]:
+        """Every stored article published inside ``window``, oldest first, then by id.
+
+        ``published_at`` is a real ``timestamptz`` here, so the half-open window
+        is expressed directly in SQL and the index does the work -- no widened
+        bound and no second pass, which is the one place this backend is simpler
+        than SQLite rather than merely different.
+        """
+        rows = self._fetchall(
+            "SELECT payload::text AS payload FROM articles "
+            "WHERE published_at >= %s AND published_at < %s "
+            "ORDER BY published_at, article_id",
+            (window.start, window.end),
+        )
+        return [NormalizedArticle.model_validate_json(row["payload"]) for row in rows]
 
     def count_articles(self) -> int:
         row = self._fetchone("SELECT COUNT(*) AS n FROM articles")

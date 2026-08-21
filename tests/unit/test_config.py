@@ -586,3 +586,69 @@ def test_the_shipped_configuration_carries_the_owners_own_beat_floor() -> None:
         TopicCategory.YOUTUBE_MONETIZATION,
         TopicCategory.KIDS_CONTENT,
     }
+
+
+# --------------------------------------------------------------------------- #
+# the minimum edition, and the caps it is allowed to relax
+# --------------------------------------------------------------------------- #
+
+
+def test_an_explicit_minimum_above_the_edition_is_refused() -> None:
+    """Otherwise every edition is permanently, inexplicably short."""
+    with pytest.raises(ValueError, match="min_items 9 exceeds max_items 8"):
+        NewsletterSettings(max_items=8, min_items=9)
+
+
+def test_the_default_minimum_shrinks_to_fit_a_smaller_newspaper() -> None:
+    """A three-story edition is not misconfigured; it simply cannot carry six."""
+    assert NewsletterSettings(max_items=3).min_items == 3
+    assert NewsletterSettings().min_items == 6
+
+
+def test_relaxing_moves_the_rationing_caps_and_nothing_else() -> None:
+    """The safety property the whole feature rests on, pinned field by field."""
+    settings = NewsletterSettings(
+        max_items=10,
+        min_score=62,
+        max_per_source=2,
+        max_per_subject=2,
+        section_limits={TopicCategory.AI_MODELS: 3},
+        excluded_categories=[TopicCategory.OTHER],
+    )
+
+    relaxed = settings.relaxed(2)
+
+    assert relaxed.section_limits == {TopicCategory.AI_MODELS: 5}
+    assert relaxed.max_per_source == 4
+    assert relaxed.max_per_subject == 4
+    assert relaxed.model_dump(
+        exclude={"section_limits", "max_per_source", "max_per_subject"}
+    ) == settings.model_dump(exclude={"section_limits", "max_per_source", "max_per_subject"})
+
+
+def test_relaxing_reaches_a_fixed_point_so_the_loop_terminates() -> None:
+    """No cap rises above ``max_items``, which is where it stops constraining."""
+    settings = NewsletterSettings(max_items=10, max_per_source=2, max_per_subject=None)
+
+    assert settings.relaxed(50) == settings.relaxed(9)
+    assert settings.relaxed(50).max_per_source == 10
+    assert settings.relaxed(50).max_per_subject is None  # an absent cap stays absent
+    assert settings.relaxed(0) is settings
+
+
+def test_the_shipped_configuration_rations_a_ten_story_edition() -> None:
+    """The caps were calibrated for eight slots; these are the ten-slot ones."""
+    newsletter = load_config(REAL_CONFIG_DIR, env={}).newsletter
+
+    assert newsletter.max_items == 10
+    assert newsletter.min_items == 6
+    assert newsletter.section_limits == {
+        TopicCategory.YOUTUBE_PLATFORM: 4,
+        TopicCategory.YOUTUBE_MONETIZATION: 4,
+        TopicCategory.KIDS_CONTENT: 4,
+        TopicCategory.AI_VIDEO: 3,
+        TopicCategory.AI_MODELS: 3,
+        TopicCategory.AI_BUSINESS: 3,
+    }
+    # No single topic may hold half the paper, and no two may fill it.
+    assert max(newsletter.section_limits.values()) * 2 <= newsletter.max_items

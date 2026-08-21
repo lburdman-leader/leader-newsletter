@@ -169,7 +169,9 @@ def cmd_validate(config: AppConfig) -> int:
         f"({config.newsletter.window_mode.value}, {config.newsletter.timezone})"
     )
     report(
-        f"Selection: min score {config.newsletter.min_score}, max {config.newsletter.max_items} stories"
+        f"Selection: min score {config.newsletter.min_score}, "
+        f"{config.newsletter.min_items}-{config.newsletter.max_items} stories "
+        "(below the minimum, the rationing caps relax; the score floor never does)"
     )
     limits = ", ".join(
         f"{category.value}={config.newsletter.limit_for(category)}"

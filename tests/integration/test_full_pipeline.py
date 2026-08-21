@@ -430,6 +430,31 @@ def test_the_manifest_records_the_whole_run(tmp_path: Path, http: FakeHttpClient
     assert payload["errors"], "the gamma failure must be visible in the manifest"
 
 
+def test_a_relaxed_cap_and_a_short_edition_both_reach_the_artifact(
+    tmp_path: Path, http: FakeHttpClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rule 7 for the minimum edition: an operator reads this from the file.
+
+    The fixture week has three publishable stories, two of them from alpha, so
+    ``max_per_source: 1`` rations the edition to two. The run relaxes to reach
+    the minimum, still cannot fill it, and has to say both things: which caps it
+    moved, and how short it finished.
+    """
+    result = run_fixture_pipeline(tmp_path, http, min_items=4, max_per_source=1)
+    payload = json.loads(
+        (tmp_path / "output" / "2026-W34" / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    console = capsys.readouterr().out
+
+    assert payload["cap_relaxation"]["steps"] >= 1
+    assert payload["cap_relaxation"]["min_items"] == 4
+    assert payload["cap_relaxation"]["max_per_source"] > 1
+    assert len(result.edition.all_items()) == 3
+    assert payload["min_items_unmet"] == 1
+    assert "rationing caps relaxed" in console
+    assert "1 short of min_items 4" in console
+
+
 def test_a_failing_editor_costs_polish_not_the_edition(
     tmp_path: Path, http: FakeHttpClient
 ) -> None:
@@ -694,6 +719,45 @@ def test_re_running_the_same_week_reproduces_its_edition_from_cache(
     assert first.manifest.llm_calls > 0
     assert second.manifest.llm_calls == 0
     assert second.manifest.llm_cache_hits == first.manifest.llm_calls
+    # Every stored article is also freshly fetched, and ``article_id`` is the
+    # canonical URL, so recall contributes nothing and the fresh copy is what
+    # runs. A story counted twice would show up here first.
+    assert second.manifest.articles_recalled == 0
+    assert second.manifest.articles_in_window == first.manifest.articles_in_window
+
+
+def test_a_story_the_feed_has_rolled_past_is_recalled_from_storage(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """Owner complaint: the run ignored articles it had already ingested and paid for.
+
+    An RSS feed carries its last handful of items, so a re-fetch of an older
+    window sees less every day. Here alpha's feed has gone entirely, and its
+    stories still reach the edition -- out of storage, at no cost, because their
+    assessments are already cached.
+    """
+    with Database(tmp_path / "news.sqlite") as database:
+        first = run_fixture_pipeline(tmp_path / "one", http, database=database)
+        printed = {item.article_id for item in first.edition.all_items()}
+
+        gone = FakeHttpClient(
+            {
+                BETA_INDEX: fixture("beta_index.html"),
+                BETA_1: fixture("beta_article_1.html"),
+                BETA_2: fixture("beta_article_2.html"),
+            },
+            failures={ALPHA_FEED: "HTTP 410 Gone", GAMMA_FEED: "connection refused"},
+        )
+        second = run_fixture_pipeline(
+            tmp_path / "two", gone, database=database, suppress_already_published=False
+        )
+
+    assert second.manifest.articles_recalled > 0
+    assert printed <= {item.article_id for item in second.edition.all_items()}
+    # Recall is cheap by construction: everything it contributed was assessed
+    # once already, so a second run of a dead feed costs no model call at all.
+    assert second.manifest.llm_calls == 0
+    assert second.manifest.llm_cache_hits >= second.manifest.articles_recalled
 
 
 def test_the_reprint_guard_can_be_switched_off(tmp_path: Path, http: FakeHttpClient) -> None:

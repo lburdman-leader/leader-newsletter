@@ -17,6 +17,8 @@
 (added scope, ADR-0040)
 **Stage 15 — a bounded analysis pool and a floor under the company's own beat — COMPLETE**
 (added scope, ADR-0041)
+**Stage 16 — a minimum edition, caps sized for ten, and a pool that remembers — COMPLETE**
+(added scope, ADR-0042)
 
 The engine has run live against real sources and a real key, and now publishes in Spanish
 for a named audience (ADR-0032). What remains is editorial judgment over time, not build
@@ -63,6 +65,31 @@ Entertainment — a Latin American children's YouTube company moving into AI pro
 
 ## Last successful validation
 
+`2026-08-21` — full gate after the minimum edition, the rescaled caps and pool recall
+(ADR-0042):
+
+| Check | Result |
+|-------|--------|
+| `ruff check .` / `ruff format --check .` | pass (76 files formatted) |
+| `python -m pytest` | **791 passed** (was 775; +20 new, -4 for the deleted `batches` parametrisation) |
+| `python scripts/validate_repo.py` | OK, 9 checks, 0 warnings (76 files) |
+| `python -m newsletter validate` | valid, 15 sources (14 enabled), 6-10 stories, limits 4/4/4/3/3/3 |
+
+**Measured on real articles and real cached assessments**, rebuilding the distribution each
+live manifest reports: the 2026-W33 shape published 3 under the old caps, 4 under the new
+ones and **6** once `min_items` relaxes rationing (2 steps); the 2026-W34 shape went 9 → 10
+on the caps alone, with nothing relaxed. W32 cannot be improved by any of this: no article
+published 3-9 August was ever ingested, so there is nothing for recall to return. The
+production database holds 0 / 21 / 186 in-window articles for W32 / W33 / W34, of which
+0 / 10 / 184 already carry a cached assessment.
+
+**Known cost.** Relaxation buys headcount with heterogeneity: reaching six from a line-up of
+three takes three steps, which can produce six stories on one topic from two publications.
+`run_manifest.json` records `cap_relaxation` whenever it happens, and ADR-0042 names the
+one-line change that would bound it if the owner decides the trade was wrong.
+
+### Earlier
+
 `2026-08-21` — full gate after bounding the analysis pool and adding the coverage floor
 (ADR-0041):
 
@@ -79,8 +106,6 @@ strongest story, *Introducing ChatGPT for Teens* (score 82, at position 71 in th
 round-robin order). ADR-0041 has the full table. `analysis_pool_max` is configuration for
 exactly this reason; `0` restores exhaustive assessment.
 | golden edition | untouched: rendering did not change, so the fixtures did not either |
-
-### Earlier
 
 `2026-08-20` — full gate after serving the edition at `/` (ADR-0038):
 

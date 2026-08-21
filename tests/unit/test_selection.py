@@ -33,8 +33,13 @@ from newsletter.ranking.selection import (
 NOW = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
 PUBLISHED = datetime(2026, 8, 17, 10, 0, tzinfo=UTC)
 
+# ``min_items=0`` throughout this constant on purpose: these tests pin what the
+# caps do when they are *in force*, and a minimum edition size would relax them
+# out from under the assertion. Relaxation has its own section, with its own
+# settings, at the bottom of this file.
 SETTINGS = NewsletterSettings(
     max_items=8,
+    min_items=0,
     min_score=70,
     section_limits={
         TopicCategory.YOUTUBE_PLATFORM: 2,
@@ -359,7 +364,7 @@ def test_nothing_is_suppressed_when_no_edition_has_been_published() -> None:
 
 
 SUBJECT_CAPPED = NewsletterSettings(
-    max_items=8, min_score=70, collapse_events=False, max_per_subject=2
+    max_items=8, min_items=0, min_score=70, collapse_events=False, max_per_subject=2
 )
 
 
@@ -510,7 +515,7 @@ def make_from(source_id: str, article_id: str, score: int, category=TopicCategor
     )
 
 
-CAPPED = NewsletterSettings(max_items=8, min_score=70, max_per_source=2)
+CAPPED = NewsletterSettings(max_items=8, min_items=0, min_score=70, max_per_source=2)
 
 
 def test_one_source_cannot_fill_the_edition() -> None:
@@ -754,6 +759,7 @@ def test_a_reserved_slot_ignores_the_score_floor() -> None:
 
 CAPPED_BANK = NewsletterSettings(
     max_items=10,
+    min_items=0,
     min_score=70,
     max_per_source=2,
     max_per_subject=2,
@@ -871,7 +877,7 @@ def test_switching_reservation_off_reproduces_the_line_up_exactly() -> None:
         make_ranked("capped2", 84, event=("Northwind", "announces", "two", None)),
         make_ranked("capped3", 83, event=("Northwind", "announces", "three", None)),
     ]
-    settings = NewsletterSettings(max_items=10, min_score=70, max_per_subject=2)
+    settings = NewsletterSettings(max_items=10, min_items=0, min_score=70, max_per_subject=2)
 
     off_manifest = RunManifest(run_id="off", started_at=NOW)
     never_manifest = RunManifest(run_id="never", started_at=NOW)
@@ -969,6 +975,7 @@ OWN_BEAT = [
 
 FLOORED = NewsletterSettings(
     max_items=10,
+    min_items=0,
     min_score=70,
     coverage_floors={"own_beat": CoverageFloor(categories=OWN_BEAT, minimum=4)},
 )
@@ -1152,3 +1159,170 @@ def test_completeness_needs_the_floor_met_and_not_merely_ten_stories() -> None:
     pool = [make_ranked(f"ai{i:02d}", 95 - i) for i in range(6)]
     pool += [beat(f"beat{i}", 80 - i) for i in range(4)]
     assert select(pool, FLOORED).is_complete
+
+
+# --------------------------------------------------------------------------- #
+# a minimum edition — rationing relaxes, correctness and quality do not
+# --------------------------------------------------------------------------- #
+
+#: The real shape of the problem: ten slots, a minimum of six, and caps tight
+#: enough that a week with plenty of qualifying stories still prints two.
+RATIONED = NewsletterSettings(
+    max_items=10,
+    min_items=6,
+    min_score=70,
+    collapse_events=False,
+    collapse_similar_events=False,
+    max_per_source=2,
+    max_per_subject=2,
+    section_limits={TopicCategory.AI_MODELS: 2, TopicCategory.AI_VIDEO: 2},
+)
+
+
+def one_topic(count: int, *, score: int = 90) -> list[RankedArticle]:
+    """``count`` publishable stories about distinct events in one category.
+
+    Distinct subjects and distinct sources, so ``section_limits`` is the cap that
+    binds first and a relaxation test cannot pass for the wrong reason.
+    """
+    pool = []
+    for index in range(count):
+        ranked = make_ranked(
+            f"m{index}",
+            score - index,
+            event=(f"Company{index}", "announces", f"thing{index}", None),
+        )
+        pool.append(
+            ranked.model_copy(
+                update={"article": ranked.article.model_copy(update={"source_id": f"wire{index}"})}
+            )
+        )
+    return pool
+
+
+def test_a_pool_the_caps_would_ration_to_a_handful_reaches_the_minimum() -> None:
+    """The owner's 2026-W33: stories cleared the bar and the caps threw them away."""
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+
+    rationed = select(one_topic(8), RATIONED.model_copy(update={"min_items": 0}))
+    result = select(one_topic(8), RATIONED, manifest=manifest)
+
+    assert len(rationed.selected) == 2
+    assert len(result.selected) == 6
+    assert result.relaxation_steps == 4
+    assert result.items_short == 0
+    assert manifest.min_items_unmet == 0
+    assert manifest.cap_relaxation is not None
+    assert manifest.cap_relaxation.steps == 4
+    assert manifest.cap_relaxation.section_limits[TopicCategory.AI_MODELS] == 6
+    assert manifest.cap_relaxation.max_per_source == 6
+
+
+def test_relaxation_stops_at_the_minimum_rather_than_filling_the_edition() -> None:
+    """The smallest concession that works, not the largest one available.
+
+    Ten qualifying stories are in the pool and the edition still prints six: the
+    caps are relaxed until the minimum is reached and not one step further, so a
+    thin week costs the paper the least heterogeneity it can.
+    """
+    result = select(one_topic(10), RATIONED)
+
+    assert len(result.selected) == 6
+    assert result.relaxed_settings is not None
+    assert result.relaxed_settings.section_limits[TopicCategory.AI_MODELS] == 6
+
+
+def test_relaxation_never_lowers_the_score_floor() -> None:
+    """A thin week is not a reason to print a story the rubric refused."""
+    pool = [*one_topic(4), make_ranked("weak", 69), make_ranked("weaker", 40)]
+
+    result = select(pool, RATIONED)
+
+    assert [r.article.article_id for r in result.selected] == ["m0", "m1", "m2", "m3"]
+    assert result.items_short == 2
+    assert result.reasons()[REASON_BELOW_THRESHOLD] == 2
+
+
+def test_relaxation_never_admits_an_excluded_category() -> None:
+    excluded = [
+        make_ranked(f"other{index}", 95, category=TopicCategory.OTHER) for index in range(6)
+    ]
+
+    result = select([*one_topic(3), *excluded], RATIONED)
+
+    assert [r.article.article_id for r in result.selected] == ["m0", "m1", "m2"]
+    assert result.reasons()[REASON_EXCLUDED_CATEGORY] == 6
+
+
+def test_relaxation_never_bypasses_cross_edition_suppression() -> None:
+    """ "Printed once" is a promise to the reader, not a cap on the edition size."""
+    pool = one_topic(8)
+    published = PublishedKeys(
+        by_article_id={ranked.article.article_id: "2026-W33" for ranked in pool[:5]}
+    )
+
+    result = select(pool, RATIONED, published=published)
+
+    assert [r.article.article_id for r in result.selected] == ["m5", "m6", "m7"]
+    assert result.reasons()[REASON_ALREADY_PUBLISHED] == 5
+    assert result.items_short == 3
+
+
+def test_relaxation_never_bypasses_the_collapse_passes() -> None:
+    """Six reports of one event stay one story, however short the edition is."""
+    settings = RATIONED.model_copy(update={"collapse_events": True})
+    one_event = [
+        make_ranked(f"copy{index}", 90 - index, event=("Northwind", "launches", "widget", None))
+        for index in range(6)
+    ]
+
+    result = select([*one_event, *one_topic(2)], settings)
+
+    assert [r.article.article_id for r in result.selected] == ["copy0", "m0", "m1"]
+    assert result.reasons()[REASON_DUPLICATE_EVENT] == 5
+    assert result.items_short == 3
+
+
+def test_a_genuinely_thin_week_publishes_short_and_says_so() -> None:
+    """Nothing is padded, and nothing is relaxed for show either."""
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+
+    result = select(one_topic(2), RATIONED, manifest=manifest)
+
+    assert len(result.selected) == 2
+    assert result.relaxation_steps == 0
+    assert result.items_short == 4
+    assert manifest.min_items_unmet == 4
+    assert manifest.cap_relaxation is None
+
+
+def test_relaxation_is_deterministic_however_the_pool_arrives() -> None:
+    """AC9 reaches the loop: the same pool relaxes the same distance, every time."""
+    pool = one_topic(9)
+
+    forward = select(pool, RATIONED)
+    backward = select(list(reversed(pool)), RATIONED)
+
+    assert forward.relaxation_steps == backward.relaxation_steps
+    assert [r.article.article_id for r in forward.selected] == [
+        r.article.article_id for r in backward.selected
+    ]
+    assert [(r.ranked.article.article_id, r.reason) for r in forward.rejected] == [
+        (r.ranked.article.article_id, r.reason) for r in backward.rejected
+    ]
+
+
+def test_a_relaxed_edition_is_never_treated_as_a_finished_one() -> None:
+    """The stopping rule for adaptive assessment.
+
+    A full edition that needed relaxed caps is a last resort, not a finished
+    newspaper: while the pool still has unread candidates the run should read
+    them rather than settle for a line-up the configured policy would refuse.
+    """
+    settings = RATIONED.model_copy(update={"min_items": 10})
+
+    relaxed = select(one_topic(12), settings)
+
+    assert relaxed.full
+    assert relaxed.relaxation_steps
+    assert not relaxed.is_complete
