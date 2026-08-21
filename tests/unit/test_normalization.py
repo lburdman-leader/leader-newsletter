@@ -15,6 +15,7 @@ from newsletter.models import (
     SourceConfig,
 )
 from newsletter.normalization.article import (
+    MAX_TREE_DEPTH,
     NormalizationError,
     compute_article_id,
     compute_content_hash,
@@ -119,6 +120,19 @@ def test_scripts_and_styles_never_reach_the_text() -> None:
     article = normalize_article(make_raw(build_html(head=DATE_META, body=body)), make_source())
     assert "NOISE" not in article.clean_text
     assert "color:red" not in article.clean_text
+
+
+def test_a_pathologically_nested_page_still_yields_its_text() -> None:
+    """A page nested past MAX_TREE_DEPTH must end in text, not in a RecursionError.
+
+    Rule 7: one broken source may cost its own article, never the run. The guard
+    stops descending and keeps whatever text it is standing on, which is the
+    conservative half of the trade.
+    """
+    depth = MAX_TREE_DEPTH * 3
+    body = "<div>" * depth + BODY + "</div>" * depth
+    article = normalize_article(make_raw(build_html(head=DATE_META, body=body)), make_source())
+    assert "larger context window" in article.clean_text
 
 
 def test_configured_content_selector_wins() -> None:

@@ -11,6 +11,11 @@ rules govern the module:
   credit or link to another domain.
 * **Text is data, never instructions.** Everything extracted here is content to
   be analysed later; nothing in it is ever treated as a directive.
+* **The body is the article; the page is not.** A site's navigation, its footer
+  and its "latest stories" rail are the same on every page it serves, so
+  admitting them makes two unrelated stories from one outlet look like one story
+  and hands the analyst other headlines to judge. :func:`extract_text` keeps the
+  body and drops the furniture, by measurement rather than by site-specific rule.
 """
 
 from __future__ import annotations
@@ -72,11 +77,137 @@ MAX_EMBEDDED_DATE_CHARS = 64
 CONTENT_SELECTORS: tuple[str, ...] = (
     "article",
     "main",
+    "[role='main']",
     "[itemprop='articleBody']",
     ".article-body",
     ".post-content",
     "body",
 )
+
+#: At most this many matches of one selector are measured. A page that repeats
+#: ``<article>`` for every teaser in a rail would otherwise make container choice
+#: proportional to the size of the rail; the body is never the twentieth one.
+MAX_CONTAINER_MATCHES = 20
+
+#: How small a container may be, relative to the largest match of the same
+#: selector, and still win on document order. Two shapes have to work at once: a
+#: blog whose first ``<article>`` is a 130-character teaser card and whose body
+#: is the tenth one, and a social thread whose first ``<article>`` is the post
+#: that was submitted and whose neighbours are replies of a similar size. Reading
+#: order settles the second case and size settles the first, so size only
+#: overrules order when the difference is not a matter of degree.
+MIN_CONTAINER_SHARE = 0.5
+
+#: Elements that never carry article body, whatever they contain: the page's
+#: furniture (``nav``, ``aside``, ``footer``, ``header``), its behaviour
+#: (``script``, ``form``, ``button``, ``template``), and things that are not text
+#: at all (``svg``, ``iframe``). Their text is dropped wherever they appear,
+#: including inside the chosen container -- a "latest stories" rail nested in an
+#: ``<article>`` is still a rail.
+NON_CONTENT_TAGS: tuple[str, ...] = (
+    "script",
+    "style",
+    "nav",
+    "aside",
+    "footer",
+    "header",
+    "form",
+    "iframe",
+    "noscript",
+    "svg",
+    "template",
+    "button",
+    "select",
+    "dialog",
+)
+_NON_CONTENT = frozenset(NON_CONTENT_TAGS)
+
+#: Elements that hold one unit of prose. Their text is taken whole and they are
+#: never judged by link density: a paragraph that cites four sources is still a
+#: paragraph, and dropping it would lose real body.
+PROSE_TAGS = frozenset(
+    {
+        "p",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "blockquote",
+        "pre",
+        "figcaption",
+        "dd",
+        "dt",
+        "td",
+        "th",
+        "caption",
+        "summary",
+    }
+)
+
+#: Elements that live *inside* a line of prose. A node whose only element
+#: children are inline is a single line of text, so its text is taken in one
+#: piece rather than split at every ``<a>`` and ``<em>``.
+INLINE_TAGS = frozenset(
+    {
+        "a",
+        "abbr",
+        "b",
+        "bdi",
+        "bdo",
+        "br",
+        "cite",
+        "code",
+        "data",
+        "del",
+        "dfn",
+        "em",
+        "i",
+        "img",
+        "ins",
+        "kbd",
+        "label",
+        "mark",
+        "picture",
+        "q",
+        "s",
+        "samp",
+        "small",
+        "source",
+        "span",
+        "strong",
+        "sub",
+        "sup",
+        "time",
+        "u",
+        "var",
+        "wbr",
+    }
+)
+
+#: Above this share of linked characters a block is navigation, not prose. Body
+#: paragraphs link out but are overwhelmingly their own words; a "latest stories"
+#: rail is almost nothing but other headlines. Measured on captured pages, real
+#: bodies sit near zero and rails sit above 0.9, so the boundary is deliberately
+#: placed well clear of the prose end of that gap.
+MAX_LINK_DENSITY = 0.6
+
+#: Link density is only evidence once there is enough text to measure. Below
+#: this a block is a caption, a tag or a "read more", and whichever way it is
+#: judged the edition reads the same.
+MIN_CHROME_CHARS = 60
+
+#: How deep into a page the body walk descends before it stops looking for
+#: chrome and simply keeps what it finds. Real markup nests a few dozen levels;
+#: a page nested past this is either broken or hostile, and either way the walk
+#: must end in text rather than in a ``RecursionError`` that would take the whole
+#: run down with it (CLAUDE.md rule 7).
+MAX_TREE_DEPTH = 200
+
+#: How ``Selector.xpath("node()")`` reports a bare text node.
+_TEXT_NODE = "#text"
 
 
 class NormalizationError(Exception):
@@ -398,8 +529,130 @@ def extract_author(page: Selector) -> str | None:
     return None
 
 
+def _subtree_text(node: Selector) -> str:
+    """One line of text for a subtree, with non-content elements left out.
+
+    Joined with no separator and re-collapsed rather than joined on newlines, so
+    the markup's own spacing is what survives: ``<p>Hello <b>world</b>.</p>``
+    reads back as ``Hello world.`` and not as three fragments.
+    """
+    raw = node.get_all_text(
+        separator="",
+        strip=False,
+        ignore_tags=NON_CONTENT_TAGS,
+        valid_values=False,
+    )
+    return collapse_inline_whitespace(str(raw))
+
+
+def _linked_chars(node: Selector) -> int:
+    """Characters of ``node`` that sit inside a link.
+
+    Counted by the same rules :func:`_subtree_text` measures by -- non-content
+    elements skipped, a nested link counted once -- because a ratio whose two
+    halves disagree about what text exists is not a ratio. Counting an anchor
+    inside a ``<header>`` whose text was already excluded is what would push a
+    plain article body past any threshold.
+
+    Walked with an explicit stack rather than by recursion: this runs on every
+    block of every page, and a page nested deeply enough to exhaust the
+    interpreter's stack must cost its own article at most, never the run.
+    """
+    total = 0
+    pending = [node]
+    while pending:
+        current = pending.pop()
+        tag = current.tag
+        if not tag or tag.startswith("#") or tag in _NON_CONTENT:
+            continue
+        if tag == "a":
+            total += len(_subtree_text(current))
+            continue
+        pending.extend(current.children)
+    return total
+
+
+def link_density(node: Selector, text: str | None = None) -> float:
+    """Share of a block's characters that sit inside a link, in ``[0, 1]``.
+
+    The one measurement that separates a navigation rail from an article: a rail
+    is other stories' headlines, and a headline is a link. ``text`` may be passed
+    in when the caller already has it, so a block is never read twice.
+    """
+    body = _subtree_text(node) if text is None else text
+    if not body:
+        return 0.0
+    return min(_linked_chars(node) / len(body), 1.0)
+
+
+def _is_chrome(node: Selector, text: str) -> bool:
+    """True when a block reads as page furniture rather than as body text."""
+    return len(text) >= MIN_CHROME_CHARS and link_density(node, text) >= MAX_LINK_DENSITY
+
+
+def _collect_body(node: Selector, out: list[str], depth: int = 0) -> None:
+    """Append the article-body fragments of ``node``'s subtree to ``out``.
+
+    Depth-first in document order, dropping two things and nothing else: any
+    :data:`NON_CONTENT_TAGS` element, and any non-prose block whose link density
+    marks it as navigation. Everything else is kept -- when in doubt the text
+    stays, because a lost paragraph silently degrades every later judgement while
+    a surviving scrap of chrome merely adds noise.
+    """
+    tag = node.tag
+    if tag == _TEXT_NODE:
+        text = collapse_inline_whitespace(str(node))
+        if text:
+            out.append(text)
+        return
+    if not tag or tag.startswith("#") or tag in _NON_CONTENT:
+        return  # a comment, a processing instruction, or page furniture
+
+    text = _subtree_text(node)
+    if not text:
+        return
+
+    is_prose = tag in PROSE_TAGS
+    if not is_prose and _is_chrome(node, text):
+        return
+
+    blocks = [child for child in node.children if child.tag not in INLINE_TAGS]
+    if not blocks or depth >= MAX_TREE_DEPTH:
+        out.append(text)  # a single line: its own words plus inline markup
+        return
+
+    for child in node.xpath("node()"):
+        _collect_body(child, out, depth + 1)
+
+
+def body_text(container: Selector) -> str:
+    """The article body inside one container, with page chrome removed.
+
+    The container itself is never judged -- it was chosen as the body, and the
+    filtering happens strictly below it.
+    """
+    fragments: list[str] = []
+    for child in container.xpath("node()"):
+        _collect_body(child, fragments)
+    return normalize_text("\n".join(fragments))
+
+
 def extract_text(page: Selector, source: SourceConfig) -> str:
-    """Article body text. Scrapling excludes script and style content already."""
+    """Article body text: the narrowest container that holds it, minus the chrome.
+
+    Two deterministic steps. First a container is chosen -- the source's own
+    selector when it declares one, then the semantic containers a page states for
+    itself (``<article>``, ``<main>``, ``[role='main']``), and only then the whole
+    ``<body>``, which is the fallback for a page that names nothing. Where a
+    selector matches several times, the first match wins unless it is less than
+    :data:`MIN_CONTAINER_SHARE` of the largest one, in which case it was a teaser
+    card and the largest is the story.
+
+    Then the chrome inside that container is dropped: non-content elements
+    outright, link-dense blocks by measurement. Both passes read the tree without
+    modifying it, so every later extractor still sees the page as fetched, and
+    identical HTML always yields identical text (AC9).
+    """
     configured = source.selectors.get("content")
     candidates = (configured, *CONTENT_SELECTORS) if configured else CONTENT_SELECTORS
 
@@ -410,7 +663,9 @@ def extract_text(page: Selector, source: SourceConfig) -> str:
         matches = page.css(selector)
         if not len(matches):
             continue
-        text = normalize_text(matches[0].get_all_text(strip=True))
+        texts = [body_text(match) for match in matches[:MAX_CONTAINER_MATCHES]]
+        floor = max(len(text) for text in texts) * MIN_CONTAINER_SHARE
+        text = next(text for text in texts if len(text) >= floor)
         if len(text) >= MIN_TEXT_LENGTH:
             return text
         best = max(best, text, key=len)

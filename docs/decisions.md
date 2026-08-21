@@ -1253,3 +1253,62 @@ runtime dependency (`wsgiref` and the standard library); the v2 assessment cache
 and the edition is still byte-identical for identical inputs. The golden edition changed by
 exactly the moved call to action and its CSS; `expected_newsletter.json` is untouched.
 
+---
+
+## 2026-08-21 · ADR-0039 · `clean_text` is the article body, not the page around it
+
+**Decision.** Normalization now extracts the article body rather than the whole document.
+It picks a container — a source selector, then `article`, `main`, `[role="main"]`,
+`[itemprop="articleBody"]`, `.article-body`, `.post-content`, then `body` — drops
+non-content elements wherever they appear (`script`, `style`, `nav`, `aside`, `footer`,
+`header`, `form`, `iframe`, `noscript`, `svg`, `template`, `button`, `select`, `dialog`),
+and then discards blocks whose text is more than 60% link characters, exempting prose tags
+and anything under 60 characters. Removal is non-mutating: the tree is left as fetched, so
+every later extractor still sees the page the fetch returned.
+
+**Reason.** ADR-0034 recorded this as the deferred root cause and it was doing more damage
+than the deduplication bug that exposed it. Two unrelated TechCrunch articles scored 0.464
+against each other purely because both carried the site's rotating story rail — higher than
+three genuine reports of one event. The analyzer was rating relevance partly on other
+stories' headlines. And a rail that rotates between fetches changes `content_hash`, which is
+why a cold run saw four cache hits in ninety-eight. One bug, three symptoms.
+
+**Measured on the real corpus, not on fixtures.** 166 of the 179 URLs in the production
+database were re-fetched and both extractions run over the same HTML. Coverage of each
+page's own JSON-LD `articleBody` went 551 → 552 sentences out of 707, with **zero pages
+covered less** — that is the evidence against over-stripping, which was the failure to fear,
+since losing real body would have degraded every assessment silently. Text fell 14.9% overall,
+median page ratio 0.83. Same-source similarity collapsed as intended: Cartoon Brew 0.4756 →
+0.1413, TechCrunch's worst pair 0.4547 → 0.2081, The Verge 0.4771 → 0.2273.
+
+**Two rules that only real pages could have taught us.** The first matching container wins
+unless it is under half the largest match — because Hugging Face's first `<article>` is a
+127-character teaser card while the body is a later one, and taking the longest match instead
+silently swapped an x.com post for a longer *reply*. And the link-density numerator and
+denominator must obey the same exclusion rules; counting anchors inside an excluded `<header>`
+against body text that already excluded it drove a plain Cartoon Brew article to density 1.00
+and deleted its entire body. Both were caught by measurement, not by review.
+
+**A latent crash was found on the way.** The first implementation recursed over the DOM and
+raised `RecursionError` on a 600-deep page the old code survived. That would have killed a
+run rather than an article, which rule 7 forbids. Body collection is now depth-capped and
+link counting is iterative.
+
+**Consequences, all measured rather than assumed.** The assessment cache is fully invalidated
+— `content_hash` is a hash of `clean_text` — so the next run re-analyses roughly 150 articles.
+That is a one-time reset, not a recurring cost, and the rail rotation this removes is what was
+destroying hash stability in the first place. The entity-fidelity guard did **not** tighten in
+practice: replaying it over 152 stored assessments gave seven violations before and seven
+after, with no newly unsupported token, so the chrome was vouching for nothing. The similarity
+threshold stays at 0.21 — on the publishable pool the true pairs rose and the nearest false
+positive fell, widening the separating gap from 0.064 to 0.094. `min_score` was not touched.
+The per-source site-furniture rule keeps a smaller place: it still removes template text link
+density cannot see, such as "Subscribe for daily Tubefilter Top Stories".
+
+**What to watch.** Link roundups are the shape that loses most — Cartoon Brew's weekly digest
+went 6790 → 2053 characters, since its teaser blocks are exactly what link density removes. It
+stays publishable on its own headline, but such posts now carry less. And four Ars Technica
+pages extract nothing at all, because what they served was a "JavaScript is disabled" bot wall;
+they will now fail normalization with a recorded error instead of being analysed as though the
+wall were the article. That is an improvement that will look like four new manifest errors.
+
