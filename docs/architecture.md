@@ -287,10 +287,21 @@ Every tie is broken by data, so the result is independent of input order — ass
 running the same set forwards and reversed (AC9). Every rejection is recorded, so a thin
 edition is explainable from the run report rather than mysterious.
 
-**Lead story and sections** (ADR-0021). The lead is the highest-ranked selected story and
-is excluded from its own section so it is not printed twice; a section that would hold
-only the lead disappears. Sections follow `section_order`. The editorial model may reword
-a headline, never change the line-up.
+**Reserved slots** (ADR-0040). Reader submissions are seated before anything is earned:
+three submissions mean three reserved stories and seven earned ones out of `max_items`.
+A reserved slot bypasses only what *rations* slots between competing stories —
+`min_score`, `max_per_source`, `max_per_subject`, `section_limits` — and nothing that
+protects correctness: the three deduplication passes, both collapse passes, cross-edition
+suppression, the entity-fidelity guard, `excluded_categories` and `max_items` all still
+apply. A reserved story counts against the caps for everything below it, so the earned
+slots stay diverse. `submissions.reserved_slots: 0` restores the earlier behaviour exactly.
+
+**Lead story and sections** (ADR-0021). The lead is the best selected story by
+`ranking_key` — *not* the first in the printed order, since reserved slots are seated
+first and being submitted is not an argument for leading the edition. It is excluded from
+its own section so it is not printed twice; a section that would hold only the lead
+disappears. Sections follow `section_order`. The editorial model may reword a headline,
+never change the line-up.
 
 **Event collapse.** `collapse_duplicate_events` uses the analyzer's
 `subject|action|object|date` fingerprint to merge two outlets covering one announcement,
@@ -384,6 +395,7 @@ generated example.
 ```text
 src/newsletter/ingestion/submissions.py   the gate, the adapter, submission identity
 src/newsletter/pipeline.py                decide_submissions() -> a reason per submission
+src/newsletter/ranking/selection.py       reserve() -> the slots a submission holds by right
 ```
 
 Anyone can propose a link:
@@ -394,8 +406,10 @@ python -m newsletter submissions --status rejected
 ```
 
 The submission is stored `pending` and joins the next run as one synthetic source
-(`reader-submissions`, priority 4). From there it goes through the *same* code as any
-other article — no shortcut, no separate threshold (ADR-0028).
+(`reader-submissions`). Ingestion, normalization, deduplication, assessment and scoring are
+the *same* code as for any other article — no shortcut. Selection is where it differs: while
+`submissions.reserved_slots` is on, submissions take the edition's slots first and the rubric
+fills the rest (ADR-0040, superseding ADR-0028).
 
 **Three defences, because a submitter is a stranger:**
 
@@ -410,42 +424,9 @@ unspecified addresses, including a hostname that resolves into them — which co
 metadata endpoint and split-horizon rebinding.
 
 **Outcomes** are recorded with a reason a submitter could read: `published` (with the issue
-label), `approved` (cleared the threshold, did not fit), `rejected` (below threshold,
-outside the window, duplicate, or unreadable), `pending` (not reached — the per-run cap).
-
-## Reader submissions (implemented — Stage 9)
-
-```text
-src/newsletter/ingestion/submissions.py   the gate, the adapter, submission identity
-src/newsletter/pipeline.py                decide_submissions() -> a reason per submission
-```
-
-Anyone can propose a link:
-
-```bash
-python -m newsletter submit https://example.com/story --by "Ana" --note "why it matters"
-python -m newsletter submissions --status rejected
-```
-
-The submission is stored `pending` and joins the next run as one synthetic source
-(`reader-submissions`, priority 4). From there it goes through the *same* code as any
-other article — no shortcut, no separate threshold (ADR-0028).
-
-**Three defences, because a submitter is a stranger:**
-
-| Risk | Defence |
-|------|---------|
-| prompt injection via the submission form | `note` is stored for humans and never enters a prompt |
-| faked recency | no date hint is offered; the date must come from the page |
-| SSRF into internal services | scheme, host blocklist and *resolved address* checked at submit time, and re-checked by the transport on every request |
-
-The address guard refuses loopback, private, link-local, reserved, multicast and
-unspecified addresses, including a hostname that resolves into them — which covers a cloud
-metadata endpoint and split-horizon rebinding.
-
-**Outcomes** are recorded with a reason a submitter could read: `published` (with the issue
-label), `approved` (cleared the threshold, did not fit), `rejected` (below threshold,
-outside the window, duplicate, or unreadable), `pending` (not reached — the per-run cap).
+label), `approved` (did not fit this edition), `rejected` (outside the window, duplicate,
+unreadable — or below the threshold, when reservation is off), `pending` (not reached — the
+per-run cap).
 
 ## Runtime pipeline reference
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+
 from newsletter.config import NewsletterSettings
 from newsletter.models import (
     ArticleAssessment,
@@ -688,3 +690,264 @@ def test_reports_below_the_floor_are_rejected_on_score_and_never_folded() -> Non
     assert result.is_empty
     assert result.reasons() == {REASON_BELOW_THRESHOLD: 3}
     assert manifest.withheld == []
+
+
+# --------------------------------------------------------------------------- #
+# reserved slots — the reader asked for the link, so it does not have to win
+# --------------------------------------------------------------------------- #
+
+#: The synthetic source every reader submission is ingested through.
+SUBMISSIONS = "reader-submissions"
+
+#: Ten slots, no diversity caps: the caps have their own tests below.
+BANK = NewsletterSettings(max_items=10, min_score=70)
+
+
+def submitted(article_id: str, score: int, **overrides: Any) -> RankedArticle:
+    """The same article, ingested through the reader-submission source."""
+    ranked = make_ranked(article_id, score, **overrides)
+    return ranked.model_copy(
+        update={"article": ranked.article.model_copy(update={"source_id": SUBMISSIONS})}
+    )
+
+
+def reserving(ranked: list[RankedArticle], settings=BANK, **kwargs: Any):
+    return select(ranked, settings, reserved_source_id=SUBMISSIONS, **kwargs)
+
+
+def test_submissions_are_seated_first_and_the_rubric_fills_the_rest() -> None:
+    """The owner's workflow: three submissions mean three reserved and seven earned.
+
+    The submissions score below every story in the pool and are printed first
+    anyway, which is the whole point: a reserved slot is not a competition.
+    """
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    pool = [make_ranked(f"earned{index}", 95 - index) for index in range(12)]
+    readers = [submitted(f"reader{index}", 71 + index) for index in range(3)]
+
+    mixed = [*pool, *readers]
+    result = reserving(mixed, manifest=manifest)
+
+    assert [r.article.article_id for r in result.selected] == [
+        "reader2",
+        "reader1",
+        "reader0",
+        *[f"earned{index}" for index in range(7)],
+    ]
+    assert result.reserved == result.selected[:3]
+    assert manifest.articles_reserved == 3
+    assert manifest.articles_selected == 10
+    # AC9: the mixed pool fed backwards produces the same ten in the same order.
+    assert [r.article.article_id for r in reserving(list(reversed(mixed))).selected] == [
+        r.article.article_id for r in result.selected
+    ]
+
+
+def test_a_reserved_slot_ignores_the_score_floor() -> None:
+    """And the floor still describes what the *rubric* found: the count is honest."""
+    result = reserving([submitted("reader", 3), make_ranked("earned", 90)])
+
+    assert [r.article.article_id for r in result.selected] == ["reader", "earned"]
+    assert result.above_threshold == 1
+
+
+CAPPED_BANK = NewsletterSettings(
+    max_items=10,
+    min_score=70,
+    max_per_source=2,
+    max_per_subject=2,
+    section_limits={TopicCategory.AI_MODELS: 2},
+)
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        pytest.param(
+            CAPPED_BANK.model_copy(update={"max_per_subject": None, "section_limits": {}}),
+            id="max_per_source",
+        ),
+        pytest.param(
+            CAPPED_BANK.model_copy(update={"max_per_source": None, "section_limits": {}}),
+            id="max_per_subject",
+        ),
+        pytest.param(
+            CAPPED_BANK.model_copy(update={"max_per_source": None, "max_per_subject": None}),
+            id="section_limits",
+        ),
+    ],
+)
+def test_a_reserved_slot_bypasses_every_cap_that_rations_slots(
+    settings: NewsletterSettings,
+) -> None:
+    """Submissions arrive as one source, one subject and one category at a time.
+
+    Each cap alone would hold the edition to two submitted links, which would make
+    the guarantee impossible to keep. Each parametrisation leaves exactly one cap
+    armed, so a regression names the cap that came back.
+    """
+    readers = [
+        submitted(f"reader{index}", 80 - index, event=("Northwind", "announces", f"n{index}", None))
+        for index in range(4)
+    ]
+
+    result = reserving(readers, settings)
+
+    assert [r.article.article_id for r in result.selected] == [f"reader{i}" for i in range(4)]
+
+
+def test_a_reserved_story_still_counts_against_the_caps_for_everything_else() -> None:
+    """Bypassing a cap is not the same as emptying it: the earned slots stay diverse."""
+    readers = [
+        submitted(f"reader{index}", 40, event=("Northwind", "announces", f"n{index}", None))
+        for index in range(2)
+    ]
+    pool = [
+        make_ranked(f"earned{index}", 90, event=("Northwind", "reports", f"e{index}", None))
+        for index in range(2)
+    ]
+
+    settings = CAPPED_BANK.model_copy(update={"max_per_source": None, "section_limits": {}})
+    result = reserving([*pool, *readers], settings)
+
+    assert [r.article.article_id for r in result.selected] == ["reader0", "reader1"]
+    assert result.reasons() == {REASON_SUBJECT_LIMIT: 2}
+
+
+def test_more_submissions_than_slots_are_seated_in_ranking_order() -> None:
+    """``max_items`` is never exceeded, and the order that decides is score-first.
+
+    The two that miss out are recorded under the reason that actually applies to
+    them; the run manifest is where they are marked as submissions.
+    """
+    readers = [submitted(f"reader{index:02d}", 60 + index) for index in range(12)]
+
+    result = reserving(readers)
+    reversed_result = reserving(list(reversed(readers)))
+
+    expected = [f"reader{index:02d}" for index in range(11, 1, -1)]
+    assert [r.article.article_id for r in result.selected] == expected
+    assert [r.article.article_id for r in reversed_result.selected] == expected
+    assert result.reasons() == {REASON_BELOW_THRESHOLD: 2}
+
+
+def test_reserved_slots_break_ties_by_publication_then_id_like_everything_else() -> None:
+    readers = [
+        submitted("zzz", 40, published_at=datetime(2026, 8, 15, tzinfo=UTC)),
+        submitted("aaa", 40, published_at=datetime(2026, 8, 16, tzinfo=UTC)),
+        submitted("mmm", 40, published_at=datetime(2026, 8, 15, tzinfo=UTC)),
+    ]
+    result = reserving(readers, NewsletterSettings(max_items=2, min_score=70))
+
+    assert [r.article.article_id for r in result.selected] == ["mmm", "zzz"]
+
+
+@pytest.mark.parametrize(
+    ("slots", "expected"),
+    [
+        (0, ["earned"]),
+        (1, ["reader1", "earned"]),
+        (None, ["reader1", "reader0", "earned"]),
+    ],
+)
+def test_reserved_slots_bound_how_much_of_the_edition_is_given_away(
+    slots: int | None, expected: list[str]
+) -> None:
+    pool = [make_ranked("earned", 90), submitted("reader0", 40), submitted("reader1", 41)]
+
+    result = reserving(pool, reserved_slots=slots)
+
+    assert [r.article.article_id for r in result.selected] == expected
+
+
+def test_switching_reservation_off_reproduces_the_line_up_exactly() -> None:
+    """``reserved_slots: 0`` is the old behaviour, down to the manifest."""
+    pool = [
+        make_ranked("earned", 90),
+        submitted("strong", 88),
+        submitted("weak", 40),
+        make_ranked("capped", 85, event=("Northwind", "announces", "one", None)),
+        make_ranked("capped2", 84, event=("Northwind", "announces", "two", None)),
+        make_ranked("capped3", 83, event=("Northwind", "announces", "three", None)),
+    ]
+    settings = NewsletterSettings(max_items=10, min_score=70, max_per_subject=2)
+
+    off_manifest = RunManifest(run_id="off", started_at=NOW)
+    never_manifest = RunManifest(run_id="never", started_at=NOW)
+    off = reserving(pool, settings, reserved_slots=0, manifest=off_manifest)
+    never = select(pool, settings, manifest=never_manifest)
+
+    assert [r.article.article_id for r in off.selected] == [
+        r.article.article_id for r in never.selected
+    ]
+    assert off.reserved == []
+    assert [(r.ranked.article.article_id, r.reason, r.detail) for r in off.rejected] == [
+        (r.ranked.article.article_id, r.reason, r.detail) for r in never.rejected
+    ]
+    assert off_manifest.withheld == never_manifest.withheld
+    assert off_manifest.articles_reserved == 0
+
+
+def test_a_submission_in_an_excluded_category_is_never_reserved() -> None:
+    """A slot is reserved for a story, not for a category the edition never prints."""
+    result = reserving([submitted("reader", 99, category=TopicCategory.OTHER)])
+
+    assert result.is_empty
+    assert result.reasons() == {REASON_EXCLUDED_CATEGORY: 1}
+
+
+def test_a_submission_an_earlier_edition_printed_is_still_suppressed() -> None:
+    """ "Printed once" is a promise to the reader, not a cap on the submitter --
+    and the manifest says the slot went empty because the story had already run."""
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    published = PublishedKeys(by_article_id={"reader": "2026-W33"})
+
+    result = reserving([submitted("reader", 95)], manifest=manifest, published=published)
+
+    assert result.is_empty
+    assert [(w.article_id, w.reason, w.detail) for w in manifest.withheld] == [
+        ("reader", REASON_ALREADY_PUBLISHED, "reader submission: already published in 2026-W33")
+    ]
+
+
+def test_a_submission_of_a_story_already_in_the_edition_prints_once() -> None:
+    """The reader's copy is the one that survives: it is the copy holding the slot.
+
+    Keeping the outlet's copy instead would put the story back into competition,
+    where the score it happens to carry could lose it -- so the guarantee would
+    quietly depend on which page a reader linked to.
+    """
+    event = ("Northwind", "launches", "a product", None)
+    result = reserving(
+        [make_ranked("outlet", 95, event=event), submitted("reader", 30, event=event)]
+    )
+
+    assert [r.article.article_id for r in result.selected] == ["reader"]
+    assert result.reasons() == {REASON_DUPLICATE_EVENT: 1}
+
+
+def test_a_submission_below_the_floor_still_folds_the_reports_it_duplicates() -> None:
+    """The similarity pass ignores the floor for a reserved submission, and must.
+
+    A sub-threshold submission is going to print, so leaving it out of the pass --
+    which is right for every other sub-threshold candidate -- would let a reader's
+    link and an outlet's account of the same launch run side by side.
+    """
+    vendor, outlet, rival = ONE_LAUNCH
+    reader = make_reported(vendor[0], SUBMISSIONS, vendor[2], vendor[3], 30)
+    others = [make_reported(*report) for report in (outlet, rival)]
+
+    result = reserving([reader, *others], SIMILARITY)
+
+    assert [r.article.article_id for r in result.selected] == ["vendor-post"]
+    assert result.reasons() == {REASON_SIMILAR_EVENT: 2}
+
+
+def test_a_reserved_story_leads_only_when_it_out_scores_the_field() -> None:
+    """Seated first is not the same as best. The lead is still the best story."""
+    weak = reserving([submitted("reader", 40), make_ranked("earned", 90)])
+    strong = reserving([submitted("reader", 99), make_ranked("earned", 90)])
+
+    assert weak.selected[0].article.article_id == "reader"
+    assert weak.lead.article.article_id == "earned"
+    assert strong.lead.article.article_id == "reader"

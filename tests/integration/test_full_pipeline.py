@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from newsletter.config import AppConfig, NewsletterSettings, RuntimeSettings
+from newsletter.config import AppConfig, NewsletterSettings, RuntimeSettings, SubmissionSettings
 from newsletter.context import RunContext
 from newsletter.ingestion.rss import RssAdapter
 from newsletter.ingestion.scrapling import ScraplingAdapter
@@ -110,6 +110,7 @@ def make_config(
     *,
     analysis_concurrency: int = 8,
     fetch_concurrency: int = 6,
+    submissions: dict[str, Any] | None = None,
     **newsletter_overrides: Any,
 ) -> AppConfig:
     settings: dict[str, Any] = {
@@ -138,6 +139,7 @@ def make_config(
             analysis_concurrency=analysis_concurrency,
             fetch_concurrency=fetch_concurrency,
         ),
+        submissions=SubmissionSettings(**(submissions or {})),
     )
 
 
@@ -793,17 +795,99 @@ def test_a_submission_that_cannot_be_read_is_rejected_with_a_reason(
         assert "could not be fetched or read" in stored.reason
 
 
-def test_a_submission_is_scored_like_everything_else(tmp_path: Path, http: FakeHttpClient) -> None:
-    """Submitting buys consideration, not publication: raise the bar and it drops."""
+def test_a_submission_below_the_floor_still_takes_its_reserved_slot(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """The owner's workflow, end to end: the reader asked for it, so it prints.
+
+    A floor of 100 leaves nothing in the week publishable, so the edition is the
+    reader's link and nothing else -- and the manifest says so, rather than
+    leaving an operator to wonder how a story nothing scored for got printed.
+    """
+    with Database(tmp_path / "news.sqlite") as database:
+        database.save_submission(
+            create_submission(SUBMITTED, submitted_by="Ana", now=NOW, check_address=False)
+        )
+        result = run_fixture_pipeline(
+            tmp_path, submission_http(http), database=database, min_score=100
+        )
+
+        assert [item.source_url for item in result.edition.all_items()] == [SUBMITTED]
+        assert result.manifest.articles_reserved == 1
+        assert result.manifest.articles_above_threshold == 0
+        assert database.list_submissions()[0].status is SubmissionStatus.PUBLISHED
+
+
+def test_turning_the_guarantee_off_makes_a_submission_compete_again(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """``reserved_slots: 0`` restores the old contract: consideration, not publication."""
     with Database(tmp_path / "news.sqlite") as database:
         database.save_submission(
             create_submission(SUBMITTED, submitted_by="Ana", now=NOW, check_address=False)
         )
         with pytest.raises(NothingToPublish):
-            run_fixture_pipeline(tmp_path, submission_http(http), database=database, min_score=100)
+            run_fixture_pipeline(
+                tmp_path,
+                submission_http(http),
+                database=database,
+                min_score=100,
+                submissions={"reserved_slots": 0},
+            )
 
         stored = database.list_submissions()[0]
         assert stored.status is SubmissionStatus.PENDING  # decided only once an edition exists
+
+
+def test_a_corrupted_submission_loses_its_reserved_slot_and_says_so(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """The entity guard does not care who proposed the link.
+
+    A reserved slot that goes empty is the omission hardest to notice from the
+    edition alone, so it is recorded twice: as the error that caused it and as the
+    story it cost, marked as a reader's.
+    """
+
+    class CorruptingSubmissionAnalyst(ScriptedAnalyzerClient):
+        def parse(self, *, instructions: str, content: str, schema: Any) -> tuple[Any, int]:
+            payload, calls = super().parse(
+                instructions=instructions, content=content, schema=schema
+            )
+            if "open-weight" in payload.summary.lower():
+                payload = payload.model_copy(
+                    update={"summary": f"{payload.summary}. Publicado por UTube."}
+                )
+            return payload, calls
+
+    config = make_config(tmp_path)
+    context = RunContext.create(config, WINDOW, now=NOW)
+    client, _, _ = make_client(FakeResponse(output_parsed=None))
+    with_submission = submission_http(http)
+
+    with Database(tmp_path / "news.sqlite") as database:
+        database.save_submission(
+            create_submission(SUBMITTED, submitted_by="Ana", now=NOW, check_address=False)
+        )
+        result = run_pipeline(
+            context,
+            analyzer=ArticleAnalyzer(CorruptingSubmissionAnalyst()),
+            editor=_EchoEditor(client),
+            database=database,
+            adapter_factory=adapter_factory(with_submission),
+            submission_http=with_submission,
+            now=NOW,
+        )
+
+    assert result.succeeded
+    assert SUBMITTED not in [item.source_url for item in result.edition.all_items()]
+    assert result.manifest.articles_reserved == 0
+
+    withheld = [item for item in result.manifest.withheld if item.url == SUBMITTED]
+    assert len(withheld) == 1
+    assert withheld[0].reason == "unsupported_entity"
+    assert withheld[0].detail.startswith("reader submission: ")
+    assert "UTube" in withheld[0].detail
 
 
 def test_submissions_are_ignored_when_the_feature_is_off(

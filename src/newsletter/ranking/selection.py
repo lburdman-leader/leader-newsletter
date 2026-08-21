@@ -10,12 +10,14 @@ The rules, applied in order to articles sorted best-first:
 2. collapse several articles covering one event into the best of them, first on
    the analyzer fingerprint and then -- for publishable candidates only -- on the
    article text;
-3. drop excluded categories (``other`` by default);
-4. drop anything below ``min_score``;
-5. respect the per-category cap, so one topic cannot monopolise the edition;
-6. respect the per-source cap, so one publication cannot either;
-7. respect the per-subject cap, so one company cannot either;
-8. stop at ``max_items``.
+3. seat the reserved slots: reader submissions take their places before anything
+   is earned (see :func:`reserve`);
+4. drop excluded categories (``other`` by default);
+5. drop anything below ``min_score``;
+6. respect the per-category cap, so one topic cannot monopolise the edition;
+7. respect the per-source cap, so one publication cannot either;
+8. respect the per-subject cap, so one company cannot either;
+9. stop at ``max_items``.
 
 Every rejection is recorded with its reason, and the reasons that need one carry
 a free-text detail as well. Those same reasons also reach the run manifest, so an
@@ -59,6 +61,18 @@ REASON_UNSUPPORTED_ENTITY = "unsupported_entity"
 #: a category was excluded, a score was too low, a cap or ``max_items`` was full.
 MANIFEST_REASONS = (REASON_ALREADY_PUBLISHED, REASON_SIMILAR_EVENT, REASON_SUBJECT_LIMIT)
 
+#: Marks a manifest record as a reader submission's. While slots are reserved,
+#: *every* rejected submission is recorded, whatever the reason: a slot the reader
+#: was promised and did not get is exactly the omission an operator has to be able
+#: to see, and the arithmetic argument for leaving common reasons out does not
+#: hold for a story that was meant to be guaranteed.
+SUBMITTED_DETAIL = "reader submission"
+
+
+def submitted_detail(detail: str | None) -> str:
+    """``detail`` marked as a reader submission's, for the run manifest."""
+    return f"{SUBMITTED_DETAIL}: {detail}" if detail else SUBMITTED_DETAIL
+
 
 @dataclass(frozen=True)
 class RejectedArticle:
@@ -76,16 +90,35 @@ class RejectedArticle:
 
 @dataclass
 class SelectionResult:
-    """The chosen line-up plus a full account of what was left out."""
+    """The chosen line-up plus a full account of what was left out.
+
+    ``selected`` is the printed order: the reserved slots first, then the stories
+    the rubric earned, each group best-first. ``reserved`` holds the same objects
+    as the first group, so a later stage can still tell a guaranteed story from an
+    earned one after the two have been merged.
+    """
 
     selected: list[RankedArticle] = field(default_factory=list)
     rejected: list[RejectedArticle] = field(default_factory=list)
     above_threshold: int = 0
+    reserved: list[RankedArticle] = field(default_factory=list)
+
+    @property
+    def reserved_ids(self) -> set[str]:
+        """Article ids that hold a reserved slot rather than an earned one."""
+        return {ranked.article.article_id for ranked in self.reserved}
 
     @property
     def lead(self) -> RankedArticle | None:
-        """The highest-ranked selected story. The editor may reword it, never replace it."""
-        return self.selected[0] if self.selected else None
+        """The best story in the line-up. The editor may reword it, never replace it.
+
+        Deliberately *not* ``selected[0]``: reserved slots are seated first, and
+        having been submitted is not an argument for leading the edition. The lead
+        is chosen by the same key everything else is ranked by, so a submission
+        leads only when it genuinely out-scores the field. With nothing reserved,
+        ``selected`` is already in ranking order and this is ``selected[0]``.
+        """
+        return min(self.selected, key=ranking_key) if self.selected else None
 
     @property
     def is_empty(self) -> bool:
@@ -122,12 +155,77 @@ class SelectionResult:
         return [item for item in self.rejected if item.reason == reason]
 
 
+def reserve(
+    candidates: Sequence[RankedArticle],
+    settings: NewsletterSettings,
+    *,
+    source_id: str | None,
+    slots: int | None,
+    excluded: set[TopicCategory],
+) -> list[RankedArticle]:
+    """The stories that hold a slot by right rather than by score.
+
+    Reader submissions are the edition's first call on its slots: the reader
+    asked for the link, so it does not have to out-score anything to be printed.
+    What a reserved slot bypasses is exactly the machinery that *rations* slots
+    between competing stories -- ``min_score``, ``max_per_source``,
+    ``max_per_subject`` and the section limits -- and nothing else. Correctness is
+    not rationing: duplicates, collapsed events, stories an earlier edition
+    printed and the excluded categories are refused here as they are anywhere,
+    which is why this runs after suppression and both collapse passes rather than
+    before them.
+
+    ``candidates`` arrives best-first, so the order in which submissions take the
+    slots is the ranking order -- score descending, then earliest publication,
+    then article id -- never insertion order and never set iteration (AC9). When
+    submissions outnumber the slots, that same order decides which ones are
+    seated and ``max_items`` still bounds the edition.
+    """
+    if source_id is None or slots == 0:
+        return []
+
+    available = settings.max_items if slots is None else min(slots, settings.max_items)
+    reserved: list[RankedArticle] = []
+    for article in candidates:
+        if len(reserved) >= available:
+            break
+        if article.article.source_id != source_id:
+            continue
+        if article.assessment.category in excluded:
+            continue  # rejected below, with its reason, like any other article
+        reserved.append(article)
+    return reserved
+
+
+def _tally(
+    article: RankedArticle,
+    per_category: dict[TopicCategory, int],
+    per_source: dict[str, int],
+    per_subject: dict[str, int],
+) -> None:
+    """Count one selected story against the caps the rest of the edition obeys.
+
+    A reserved story bypasses the caps for itself but still occupies them, so the
+    seven earned slots below it are still spread across topics, sources and
+    companies.
+    """
+    category = article.assessment.category
+    per_category[category] = per_category.get(category, 0) + 1
+    source_id = article.article.source_id
+    per_source[source_id] = per_source.get(source_id, 0) + 1
+    subject = normalize_entity(article.assessment.event_subject or "")
+    if subject:
+        per_subject[subject] = per_subject.get(subject, 0) + 1
+
+
 def select(
     ranked: Iterable[RankedArticle],
     settings: NewsletterSettings,
     *,
     manifest: RunManifest | None = None,
     published: PublishedKeys | None = None,
+    reserved_source_id: str | None = None,
+    reserved_slots: int | None = None,
 ) -> SelectionResult:
     """Choose the edition line-up. Pure function of its inputs.
 
@@ -135,10 +233,18 @@ def select(
     printed. It is passed in rather than read here: selection stays a pure
     function of its arguments, so the same inputs always produce the same
     line-up (AC9), and the pipeline owns the database.
+
+    ``reserved_source_id`` names the source whose articles hold slots by right --
+    in practice the synthetic reader-submission source -- and ``reserved_slots``
+    bounds how many, ``None`` meaning "as many as there are, up to
+    ``max_items``" and ``0`` meaning "none, everything competes on score". Both
+    are arguments rather than settings for the same reason ``published`` is: they
+    describe this run, and this module must not have to ask anything about it.
     """
     candidates: Sequence[RankedArticle] = sorted(ranked, key=ranking_key)
     result = SelectionResult()
     already_published = published or PublishedKeys()
+    reserved_source = None if reserved_slots == 0 else reserved_source_id
 
     # Before the collapse, not after it. A copy that ran in an earlier edition
     # would otherwise win its event -- it usually scores highest, which is why it
@@ -156,7 +262,9 @@ def select(
         candidates = surviving
 
     if settings.collapse_events:
-        candidates, collapsed = collapse_duplicate_events(candidates)
+        candidates, collapsed = collapse_duplicate_events(
+            candidates, preferred_source_id=reserved_source
+        )
         result.rejected.extend(
             RejectedArticle(ranked=item, reason=REASON_DUPLICATE_EVENT) for item in collapsed
         )
@@ -164,7 +272,7 @@ def select(
     # Second, and only after the exact keys have had their chance: the reports of
     # one event whose analyzer keys disagree, caught on the text they share. It is
     # given ``min_score`` because it folds only what could be published -- a
-    # candidate that rule 4 below will reject anyway gains nothing from being
+    # candidate the floor below will reject anyway gains nothing from being
     # collapsed, and is where every measured false positive lives. The whole
     # candidate list still goes in, because the pass measures its term statistics
     # over the run's full corpus.
@@ -173,6 +281,7 @@ def select(
             candidates,
             threshold=settings.similar_event_threshold,
             min_score=settings.min_score,
+            preferred_source_id=reserved_source,
         )
         result.rejected.extend(
             RejectedArticle(
@@ -188,6 +297,20 @@ def select(
     per_source: dict[str, int] = {}
     per_subject: dict[str, int] = {}
 
+    # The reserved slots are seated first, and they hold their places against the
+    # caps, so the earned pass below fills only what is genuinely left.
+    result.reserved = reserve(
+        candidates,
+        settings,
+        source_id=reserved_source,
+        slots=reserved_slots,
+        excluded=excluded,
+    )
+    reserved_ids = result.reserved_ids
+    for article in result.reserved:
+        result.selected.append(article)
+        _tally(article, per_category, per_source, per_subject)
+
     for article in candidates:
         category = article.assessment.category
 
@@ -195,11 +318,19 @@ def select(
             result.rejected.append(RejectedArticle(article, REASON_EXCLUDED_CATEGORY))
             continue
 
+        # Counted before the reserved slots are skipped, and before the floor
+        # rejects anything: the figure answers "how many stories did the rubric
+        # find worth printing this week?", which a guaranteed slot does not change
+        # in either direction.
+        if article.final_score >= settings.min_score:
+            result.above_threshold += 1
+
+        if article.article.article_id in reserved_ids:
+            continue  # already seated; no cap applies to it and nothing rejects it
+
         if article.final_score < settings.min_score:
             result.rejected.append(RejectedArticle(article, REASON_BELOW_THRESHOLD))
             continue
-
-        result.above_threshold += 1
 
         if len(result.selected) >= settings.max_items:
             result.rejected.append(RejectedArticle(article, REASON_MAX_ITEMS))
@@ -236,27 +367,29 @@ def select(
             )
             continue
 
-        per_category[category] = taken + 1
-        per_source[source_id] = from_source + 1
-        if subject:
-            per_subject[subject] = about_subject + 1
+        _tally(article, per_category, per_source, per_subject)
         result.selected.append(article)
 
     if manifest is not None:
         manifest.articles_above_threshold = result.above_threshold
         manifest.articles_selected = len(result.selected)
+        manifest.articles_reserved = len(result.reserved)
         # Rule 7: nothing is dropped silently, and the console is not an audit
         # surface. A withheld story is not a failure, so it is recorded as an
         # omission rather than an error, which would mark a healthy run as failed.
         for item in result.rejected:
-            if item.reason in MANIFEST_REASONS:
-                manifest.record_withheld(
-                    article_id=item.ranked.article.article_id,
-                    url=item.ranked.article.canonical_url,
-                    title=item.ranked.article.title,
-                    reason=item.reason,
-                    detail=item.detail,
-                )
+            submitted = (
+                reserved_source is not None and item.ranked.article.source_id == reserved_source
+            )
+            if item.reason not in MANIFEST_REASONS and not submitted:
+                continue
+            manifest.record_withheld(
+                article_id=item.ranked.article.article_id,
+                url=item.ranked.article.canonical_url,
+                title=item.ranked.article.title,
+                reason=item.reason,
+                detail=submitted_detail(item.detail) if submitted else item.detail,
+            )
 
     for item in result.rejected:
         if item.detail is not None:
@@ -265,8 +398,9 @@ def select(
             )
 
     logger.info(
-        "selection: %d selected of %d above threshold (%s)",
+        "selection: %d selected (%d reserved) of %d above threshold (%s)",
         len(result.selected),
+        len(result.reserved),
         result.above_threshold,
         result.reasons() or "no rejections",
     )

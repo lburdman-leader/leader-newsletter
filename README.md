@@ -157,8 +157,15 @@ python -m newsletter submissions --status rejected
 ```
 
 A submitted link joins the next run as an ordinary candidate: fetched, normalized,
-deduplicated, assessed and scored by exactly the same code as everything else, and it has
-to clear the same threshold. **Submitting buys consideration, not publication.**
+deduplicated, assessed and scored by exactly the same code as everything else. It then
+**takes one of the edition's ten slots by right**: reader submissions are seated first and
+the rubric fills whatever is left, so three submissions mean three reserved stories and
+seven earned ones. A reserved slot skips the score floor and the per-source, per-subject
+and per-section caps — the rules that ration slots between competing stories — and skips
+nothing that protects the edition: duplicates, stories an earlier issue printed, corrupted
+prose and excluded categories are refused whoever proposed them, and every refusal is named
+in `run_manifest.json`. Set `submissions.reserved_slots` to `0` to switch the guarantee off
+and make submissions compete on score again.
 
 Every submission ends up with a reason you can read:
 
@@ -166,7 +173,7 @@ Every submission ends up with a reason you can read:
 |--------|---------|
 | `published` | it ran in that issue |
 | `approved` | good enough, but it did not fit this edition; it will be considered again |
-| `rejected` | below the threshold, outside the window, a duplicate, or the page could not be read |
+| `rejected` | outside the window, a duplicate, the page could not be read — or, with `reserved_slots: 0`, below the threshold |
 | `pending` | not reached yet — the per-run cap applies |
 
 The `--note` is for humans only and is **never** shown to the model: otherwise submitting a

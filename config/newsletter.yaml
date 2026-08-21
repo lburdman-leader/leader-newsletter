@@ -14,7 +14,10 @@ newsletter:
   window_mode: rolling
 
   # Deterministic selection. The model never changes these.
-  max_items: 8
+  # Ten stories an edition: the newspaper is a bank of links, and reader
+  # submissions take their slots out of these ten before the rubric fills the
+  # rest (see `submissions.reserved_slots`).
+  max_items: 10
   # Recalibrated for the v2 rubric, which asks what a story means for THIS
   # company rather than for a general tech reader. Across 43 real articles the
   # old rubric topped out at 88 and the new one at 68, so 70 published nothing.
@@ -96,14 +99,39 @@ newsletter:
 # Reader submissions: anyone can propose a link with
 #   python -m newsletter submit <url> --by "name" --note "why"
 # A submission is fetched, normalized, deduplicated, assessed and scored exactly
-# like any other article. Submitting buys consideration, never publication.
+# like any other article -- and then it takes one of the edition's slots by right.
 submissions:
   enabled: true
   source_name: "Reader submission"
-  # Top tier: a submitted link competes on equal footing with a primary source.
-  # It still has to clear min_score on the rubric like everything else.
+  # Top tier: a submitted link competes on equal footing with a primary source
+  # for whatever slots are left once the reserved ones are seated, and its
+  # priority is still what orders submissions against each other.
   priority: 7
   max_per_run: 20
+
+  # How many of the edition's `max_items` slots submissions hold by right.
+  # Empty (the default) reserves a slot for every submission the run has, up to
+  # `max_items`: three submissions become three reserved slots and seven earned
+  # ones. Set it to a number to cap the reserved share, or to 0 to switch the
+  # guarantee off entirely, after which a submitted link is back to competing on
+  # its score like everything else.
+  #
+  # A reserved slot bypasses exactly the rules that ration scarce slots between
+  # competing stories -- min_score, max_per_source, max_per_subject and the
+  # section limits -- because a submission is not competing for its slot.
+  # It bypasses nothing that protects correctness: the three deduplication
+  # passes, both event-collapse passes, the "printed only once" guarantee across
+  # editions, the entity-fidelity guard, excluded_categories and max_items all
+  # still apply, and a submitted link that any of them refuses is named in the
+  # run manifest so an empty reserved slot can be accounted for.
+  #
+  # Set to half the edition rather than left empty. Empty means "every pending
+  # submission, up to max_items", and the intake form authenticates nobody, so
+  # one enthusiastic or hostile submitter could take all ten slots and the rubric
+  # would print nothing. Five keeps submissions decisively ahead of the rubric --
+  # they still bypass every cap and every score floor -- while leaving half the
+  # newspaper to the week's actual news. Raise it if a week ever deserves it.
+  reserved_slots: 5
   require_https: true
   blocked_hosts: []
 

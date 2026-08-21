@@ -63,6 +63,7 @@ from newsletter.ranking.selection import (
     RejectedArticle,
     SelectionResult,
     select,
+    submitted_detail,
 )
 from newsletter.rendering.renderer import RenderError, write_edition
 
@@ -152,7 +153,7 @@ def decide_submissions(
     kept_ids: set[str],
     scores: Mapping[str, int],
     published_ids: set[str],
-    min_score: int,
+    min_score: int | None,
     issue_label: str,
     now: datetime,
 ) -> list[Submission]:
@@ -161,6 +162,10 @@ def decide_submissions(
     Each outcome carries a reason a submitter could read without knowing anything
     about the internals. A submission that was never reached, because the per-run
     cap was hit, is left pending rather than turned down.
+
+    ``min_score`` is ``None`` when the run reserved slots for submissions: the
+    floor did not apply, so it cannot be the reason one was turned down, and a
+    submission that still did not print simply did not fit this edition.
     """
     article_by_url: dict[str, NormalizedArticle] = {}
     for article in normalized:
@@ -194,7 +199,7 @@ def decide_submissions(
             outcome = (SubmissionStatus.REJECTED, "could not be assessed")
         elif article_id in published_ids:
             outcome = (SubmissionStatus.PUBLISHED, f"published in issue {issue_label}")
-        elif scores[article_id] < min_score:
+        elif min_score is not None and scores[article_id] < min_score:
             outcome = (
                 SubmissionStatus.REJECTED,
                 f"scored {scores[article_id]}, below the threshold of {min_score}",
@@ -218,11 +223,17 @@ def drop_unsupported_stories(
 
     A corrupted proper name is not a cosmetic defect — ``UTube`` is a company
     that does not exist — so the story goes rather than the edition, and the rest
-    of the line-up is published as usual. Nothing is dropped quietly: each drop
-    lands in the run manifest, on the console and in the selection's own
-    rejection reasons. Returns how many stories were dropped.
+    of the line-up is published as usual. A reserved slot buys no exemption:
+    corrupted prose is a defect whoever proposed the link.
+
+    Nothing is dropped quietly: each drop lands in the run manifest twice over —
+    as the error that caused it, and as the story it cost, which is the record
+    that says whether a reader's reserved slot went empty — and on the console
+    and in the selection's own rejection reasons. Returns how many stories were
+    dropped.
     """
     kept: list[RankedArticle] = []
+    reserved_ids = selection.reserved_ids
     for ranked in selection.selected:
         violations = unsupported_in_assessment(ranked)
         if not violations:
@@ -236,6 +247,15 @@ def drop_unsupported_stories(
             source_id=ranked.article.source_id,
             now=now,
         )
+        manifest.record_withheld(
+            article_id=ranked.article.article_id,
+            url=ranked.article.canonical_url,
+            title=ranked.article.title,
+            reason=REASON_UNSUPPORTED_ENTITY,
+            detail=(
+                submitted_detail(detail) if ranked.article.article_id in reserved_ids else detail
+            ),
+        )
         report_failure(
             f'story "{ranked.article.title}" dropped: {detail}, which its source never does'
         )
@@ -243,8 +263,13 @@ def drop_unsupported_stories(
 
     dropped = len(selection.selected) - len(kept)
     if dropped:
+        surviving = {ranked.article.article_id for ranked in kept}
         selection.selected = kept
+        selection.reserved = [
+            ranked for ranked in selection.reserved if ranked.article.article_id in surviving
+        ]
         manifest.articles_selected = len(kept)
+        manifest.articles_reserved = len(selection.reserved)
     return dropped
 
 
@@ -329,8 +354,18 @@ def run_pipeline(
         raise NothingToPublish("no article falls inside the configured date window")
 
     # -- deduplicate -------------------------------------------------------- #
+    # While slots are reserved, the reader's copy wins a collision: the submitted
+    # link is the one holding the slot, and keeping the configured source's copy
+    # instead would quietly turn a guaranteed story back into one that has to earn
+    # its place. With reservation off, `reserved_source` is None and the ordering
+    # is priority alone, exactly as before.
+    reserved_source = (
+        config.submissions.source_id
+        if submission_adapter is not None and config.submissions.reserved_slots != 0
+        else None
+    )
     priorities = {source.id: source.priority for source in sources_by_id.values()}
-    deduped = deduplicate(in_window, priorities=priorities)
+    deduped = deduplicate(in_window, priorities=priorities, preferred_source_id=reserved_source)
     manifest.articles_after_deduplication = len(deduped.kept)
     report(
         f"{len(deduped.kept)} after deterministic deduplication "
@@ -373,13 +408,23 @@ def run_pipeline(
         )
 
     selection: SelectionResult = select(
-        ranked, config.newsletter, manifest=manifest, published=published_keys
+        ranked,
+        config.newsletter,
+        manifest=manifest,
+        published=published_keys,
+        reserved_source_id=reserved_source,
+        reserved_slots=config.submissions.reserved_slots,
     )
     for suppressed in selection.rejections_for(REASON_ALREADY_PUBLISHED):
         report(f'"{suppressed.ranked.article.title}" not reprinted: {suppressed.detail}')
     for folded in selection.rejections_for(REASON_SIMILAR_EVENT):
         report(f'"{folded.ranked.article.title}" folded in: {folded.detail}')
     report(f"{selection.above_threshold} scored >= {config.newsletter.min_score}")
+    if selection.reserved:
+        report(
+            f"{len(selection.reserved)} reader submissions took a reserved slot; "
+            f"{len(selection.selected) - len(selection.reserved)} stories earned theirs"
+        )
     report(f"{len(selection.selected)} selected")
 
     if selection.is_empty:
@@ -460,7 +505,7 @@ def run_pipeline(
             kept_ids={article.article_id for article in deduped.kept},
             scores={item.article.article_id: item.final_score for item in ranked},
             published_ids={item.article_id for item in edition.all_items()},
-            min_score=config.newsletter.min_score,
+            min_score=None if reserved_source is not None else config.newsletter.min_score,
             issue_label=window.issue_label(),
             now=stamp,
         )

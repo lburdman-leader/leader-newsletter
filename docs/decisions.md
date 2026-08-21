@@ -623,6 +623,9 @@ offline check can prove a live run works.
 
 ## 2026-08-18 · ADR-0028 · A submitted link earns consideration, never publication
 
+> **Superseded in part by ADR-0040 (2026-08-21).** Everything below still holds up to
+> selection; from selection on, a submission now takes a slot by right rather than by score.
+
 **Decision.** Anyone can propose a story with `python -m newsletter submit <url>`. A
 submission is stored as `pending` and, on the next run, enters the pipeline as one
 synthetic source (`reader-submissions`, priority 4). From that point it is fetched,
@@ -1311,4 +1314,60 @@ stays publishable on its own headline, but such posts now carry less. And four A
 pages extract nothing at all, because what they served was a "JavaScript is disabled" bot wall;
 they will now fail normalization with a recorded error instead of being analysed as though the
 wall were the article. That is an improvement that will look like four new manifest errors.
+
+---
+
+## 2026-08-21 · ADR-0040 · A submitted link takes a slot, the rubric fills the rest
+
+**Decision.** The edition is a bank of ten links (`max_items: 10`) in which reader
+submissions are seated **first and guaranteed**. `submissions.reserved_slots` bounds how
+many — unset means "one per submission, up to `max_items`", `0` switches the guarantee off
+and restores ADR-0028 exactly. Three submissions therefore produce three reserved stories
+and seven earned ones. No model call was added, no prompt or schema changed, and no score
+was touched: `min_score` is still 62, and a reserved slot bypasses it rather than moving it.
+
+**What a reserved slot bypasses, and why only those.** The four rules a reserved story
+skips — `min_score`, `max_per_source`, `max_per_subject`, `section_limits` — exist to
+*ration* scarce slots between stories competing for them, and a submission is not competing.
+`max_per_source` is the one that made this non-trivial: submissions arrive as a single
+synthetic source, so a cap of 2 would have held any edition to two submitted links and made
+the owner's workflow impossible to build at all.
+
+Everything else still applies, because it is correctness rather than rationing: the three
+deterministic deduplication passes, both collapse passes, cross-edition suppression ("printed
+once" is a promise to the reader, not a cap on the submitter), the entity-fidelity guard
+(corrupted prose is a defect whoever proposed the link), `excluded_categories`, and
+`max_items` — reserved slots come out of the ten, never on top of them.
+
+**A collision keeps the reader's copy.** When a submitted link turns out to be a page a
+configured source also carries, `deduplicate` and both collapse passes now prefer the
+submission, and the similarity pass treats a reserved submission as publishable whatever it
+scored. Both changes are gated on reservation being on. Keeping the outlet's copy instead
+would have put the story back into competition, where the score it happens to carry could
+lose it — the guarantee would then quietly depend on which page a reader linked to. The
+false-positive cost moves with the preference: an over-eager fold now costs a source story
+rather than the reader's, which is the trade the owner asked for.
+
+**The lead is still the best story, not merely a submitted one.** `selected` is
+reserved-first, so `selected[0]` would have made every submission the lead by fiat. `lead`
+is now the minimum of `ranking_key` over the line-up: identical to `selected[0]` when
+nothing is reserved, and a submission leads only when it genuinely out-scores the field.
+
+**Ordering is total and data-driven** (AC9). Submissions take slots in the ordinary ranking
+order — score descending, then earliest publication, then article id — never insertion order
+and never set iteration. `RankedArticle` carries no `submitted_at`, and passing one in would
+have added an input to a pure function to reproduce an order those three keys already fix.
+
+**Visibility** (rule 7). `run_manifest.json` gains `articles_reserved`, so
+`articles_selected - articles_reserved` is what the rubric earned. While slots are reserved,
+*every* rejected submission reaches `withheld` — not only the three reasons ordinarily
+recorded there — with its detail prefixed `reader submission:`, because a slot a reader was
+promised and did not get is precisely the omission that is invisible from the edition. The
+entity guard now records the story it dropped as well as the error that caused it.
+
+**Consequences.** A thin week can now print stories nothing scored for, which is the point.
+Because reserved stories are seated first, they also lead their section, so a low-scoring
+submitted link can appear above a high-scoring earned one inside the same section — the
+owner's "submissions come first" policy, made visible. And a submission still counts against
+the caps for everything below it, so seven earned slots stay as diverse as ten used to be.
 

@@ -81,8 +81,12 @@ def test_the_shipped_configuration_is_the_one_the_newsletter_is_tuned_for() -> N
     assert config.enabled_sources
     assert settings.min_score == 62  # recalibrated for the v2 rubric
     assert settings.masthead == "Leader Intelligence Semanal"
-    assert settings.max_items == 8
+    assert settings.max_items == 10  # a bank of links, submissions first
     assert settings.max_per_subject == 2
+    # Half the edition. Unset would mean "every pending submission up to
+    # max_items", and the intake form authenticates nobody, so one submitter
+    # could take all ten slots and the rubric would print nothing.
+    assert config.submissions.reserved_slots == 5
     assert settings.suppress_already_published is True
     assert settings.collapse_similar_events is True
     assert settings.similar_event_threshold == 0.21
@@ -507,4 +511,14 @@ def test_a_submission_form_url_that_cannot_be_published_is_rejected(
         MINIMAL_NEWSLETTER + f'\nsubmissions:\n  form_url: "{bad}"\n', encoding="utf-8"
     )
     with pytest.raises(ConfigError, match="form_url"):
+        load_config(config_dir, env={})
+
+
+@pytest.mark.parametrize("bad", ["-1", "not-a-number", "999"])
+def test_a_reserved_slot_count_that_makes_no_sense_is_refused(config_dir: Path, bad: str) -> None:
+    """It decides how much of the edition is given away, so it fails at load time."""
+    (config_dir / "newsletter.yaml").write_text(
+        MINIMAL_NEWSLETTER + f"\nsubmissions:\n  reserved_slots: {bad}\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="reserved_slots"):
         load_config(config_dir, env={})

@@ -27,9 +27,9 @@ The body is size-capped *before* it is read, because a request that is too big t
 be a submission should never be buffered in the first place.
 
 Nothing here authenticates anybody: whoever can reach the page can queue a link.
-That is the point -- a submission buys consideration, not publication -- but it is
-also why the server binds to localhost until someone deliberately decides
-otherwise.
+That is the point, and it is also why the server binds to localhost until someone
+deliberately decides otherwise -- more so now that a queued link holds a reserved
+slot in the next edition rather than merely a place in the running.
 """
 
 from __future__ import annotations

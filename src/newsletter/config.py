@@ -143,8 +143,9 @@ class NewsletterSettings(ValueModel):
 class SubmissionSettings(ValueModel):
     """Policy for reader-submitted links.
 
-    A submission competes on the same terms as any other article; these settings
-    only decide who may propose one and how many are considered per run.
+    A submission is ingested, scored and checked exactly like any other article;
+    these settings decide who may propose one, how many are considered per run,
+    and how many of the edition's slots submissions hold by right.
     """
 
     enabled: bool = True
@@ -156,6 +157,19 @@ class SubmissionSettings(ValueModel):
     priority: int = Field(default=4, ge=0, le=10)
     #: How many pending submissions one run will consider.
     max_per_run: int = Field(default=20, ge=1, le=200)
+    #: How many of the edition's slots submissions take before the rubric fills
+    #: the rest. A reserved slot is *guaranteed*: it bypasses ``min_score`` and
+    #: the three caps that ration scarce slots between competing stories --
+    #: ``max_per_source``, ``max_per_subject`` and ``section_limits`` -- because a
+    #: submission is not competing for its slot. It bypasses nothing that
+    #: protects correctness: deduplication, event and similarity collapse,
+    #: cross-edition suppression, the entity-fidelity guard,
+    #: ``excluded_categories`` and ``max_items`` all still apply.
+    #:
+    #: ``None`` reserves a slot for every submission the run has, bounded by
+    #: ``max_items``. ``0`` switches reservation off, and a submitted link is back
+    #: to competing on its score like everything else.
+    reserved_slots: int | None = Field(default=None, ge=0, le=50)
     require_https: bool = True
     #: Hosts that may never be submitted; a bare domain also blocks subdomains.
     blocked_hosts: list[str] = Field(default_factory=list)

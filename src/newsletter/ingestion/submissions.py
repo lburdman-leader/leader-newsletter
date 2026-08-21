@@ -1,9 +1,11 @@
 """Reader submissions: anyone can propose a link.
 
-A submission is an ordinary candidate wearing no special clothes. It is fetched,
-normalized, date-filtered, deduplicated, assessed and scored by exactly the same
-code as an article from a configured source, and it competes for a place in the
-edition on the same terms. Submitting buys **consideration, not publication**.
+A submission travels the ordinary path: it is fetched, normalized, date-filtered,
+deduplicated, assessed and scored by exactly the same code as an article from a
+configured source. Where it differs is at selection, and only there -- while
+``submissions.reserved_slots`` is on, a submission takes one of the edition's
+slots **by right** rather than by score (see :mod:`newsletter.ranking.selection`).
+Nothing in this module knows about that; the link is ingested on its merits.
 
 Three rules keep the door open without letting the newsletter be captured:
 

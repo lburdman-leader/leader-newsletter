@@ -13,6 +13,8 @@
 (added scope, ADR-0037)
 **Stage 13 — the edition is served at `/`, the CTA sits on the masthead — COMPLETE**
 (added scope, ADR-0038)
+**Stage 14 — a bank of ten links, reader submissions seated first — COMPLETE**
+(added scope, ADR-0040)
 
 The engine has run live against real sources and a real key, and now publishes in Spanish
 for a named audience (ADR-0032). What remains is editorial judgment over time, not build
@@ -36,6 +38,7 @@ work.
 | 11 | Reader intake: CTA in the edition + `serve` (added scope) | complete | 2026-08-20 |
 | 12 | Bounded concurrency for analysis and fetching (added scope) | complete | 2026-08-20 |
 | 13 | Edition served at `/`, CTA on the masthead (added scope) | complete | 2026-08-20 |
+| 14 | Ten slots, reader submissions reserved (added scope) | complete | 2026-08-21 |
 
 ## Current objective
 
@@ -56,6 +59,18 @@ Entertainment — a Latin American children's YouTube company moving into AI pro
    edition cannot distinguish a bad threshold from a slow news week.
 
 ## Last successful validation
+
+`2026-08-21` — full gate after reserving slots for reader submissions (ADR-0040):
+
+| Check | Result |
+|-------|--------|
+| `ruff check .` / `ruff format --check .` | pass (73 files formatted) |
+| `python -m pytest` | **738 passed** (was 716; +22 for reserved slots and their bypasses) |
+| `python scripts/validate_repo.py` | OK, 9 checks, 0 warnings (73 files) |
+| `python -m newsletter validate` | valid, 15 sources (14 enabled), max 10 stories |
+| golden edition | untouched: rendering did not change, so the fixtures did not either |
+
+### Earlier
 
 `2026-08-20` — full gate after serving the edition at `/` (ADR-0038):
 

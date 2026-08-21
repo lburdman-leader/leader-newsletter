@@ -419,10 +419,12 @@ class NewsletterEdition(ValueModel):
 class Submission(ValueModel):
     """A link somebody proposed for the newsletter.
 
-    A submission buys *consideration*, never publication: it is fetched,
-    normalized, deduplicated, assessed and scored exactly like an article from a
-    configured source. ``note`` is for humans only and is never shown to a model
-    -- otherwise submitting a link would be a way to write the analyst's prompt.
+    A submission is fetched, normalized, deduplicated, assessed and scored exactly
+    like an article from a configured source, and -- while
+    ``submissions.reserved_slots`` is on -- it then takes one of the edition's
+    slots by right rather than by score. ``note`` is for humans only and is never
+    shown to a model: otherwise submitting a link would be a way to write the
+    analyst's prompt.
     """
 
     submission_id: str
@@ -507,6 +509,11 @@ class RunManifest(MutableModel):
     llm_calls: int = 0
     articles_above_threshold: int = 0
     articles_selected: int = 0
+    #: How many of ``articles_selected`` hold a reserved slot -- a reader
+    #: submission printed because it was submitted, not because it out-scored
+    #: anything. ``articles_selected - articles_reserved`` is what the rubric
+    #: earned, so an operator can read the split without re-deriving it.
+    articles_reserved: int = 0
     newsletter_generated: bool = False
 
     analyzer_model: str | None = None

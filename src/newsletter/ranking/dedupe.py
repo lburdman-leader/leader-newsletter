@@ -7,9 +7,9 @@ requested. Three passes, cheapest and most certain first:
 2. content hash -- identical text republished at a different URL (syndication);
 3. normalized title -- the same story rewritten with the same headline.
 
-Which copy survives is decided by rule, never by chance: highest source priority,
-then earliest publication, then lowest article id. Two runs over the same inputs
-always keep the same copy.
+Which copy survives is decided by rule, never by chance: the reserved-slot source
+first when one is named, then highest source priority, then earliest publication,
+then lowest article id. Two runs over the same inputs always keep the same copy.
 
 Semantic collapse of *different* stories about the same event runs later in the
 pipeline, after analysis and scoring (PRD section 22), in two passes:
@@ -28,7 +28,7 @@ import math
 import re
 import unicodedata
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from newsletter.logging_setup import get_logger
@@ -99,10 +99,11 @@ class DedupeResult:
 
 
 def _preference_key(
-    article: NormalizedArticle, priorities: Mapping[str, int]
-) -> tuple[int, str, str]:
-    """Best copy first: highest priority, then earliest published, then lowest id."""
+    article: NormalizedArticle, priorities: Mapping[str, int], preferred: str | None
+) -> tuple[int, int, str, str]:
+    """Best copy first: the preferred source, then highest priority, then earliest, then id."""
     return (
+        0 if preferred is not None and article.source_id == preferred else 1,
         -priorities.get(article.source_id, 0),
         article.published_at.isoformat(),
         article.article_id,
@@ -113,14 +114,23 @@ def deduplicate(
     articles: Iterable[NormalizedArticle],
     *,
     priorities: Mapping[str, int] | None = None,
+    preferred_source_id: str | None = None,
 ) -> DedupeResult:
     """Collapse duplicates deterministically.
 
     ``priorities`` maps source id to its configured priority; a source missing
     from the mapping is treated as priority 0.
+
+    ``preferred_source_id`` names a source whose copy wins a collision outright,
+    whatever its priority. It exists for reader submissions while slots are
+    reserved for them: when a reader's link turns out to be the same page a
+    configured source also carries, keeping the reader's copy is what keeps the
+    reserved slot real -- the source's copy would have to earn its place on score
+    instead, and could lose it. ``None`` leaves the ordering exactly as priority
+    alone decides.
     """
     ranking = priorities or {}
-    ordered = sorted(articles, key=lambda a: _preference_key(a, ranking))
+    ordered = sorted(articles, key=lambda a: _preference_key(a, ranking, preferred_source_id))
 
     result = DedupeResult()
     by_url: dict[str, str] = {}
@@ -188,8 +198,31 @@ def event_collapse_key(assessment: ArticleAssessment) -> str | None:
     return f"{subject}|{obj}"
 
 
+def collapse_order(
+    preferred_source_id: str | None,
+) -> Callable[[RankedArticle], tuple[int, int, str, str]]:
+    """Ranking order, with one source moved to the front of it.
+
+    The collapse passes keep whichever copy they visit first, so this is how a
+    reserved reader submission survives a collision with a configured source's
+    account of the same event instead of folding into it. ``None`` is plain
+    ranking order, which is what every caller uses when nothing is reserved.
+    """
+    from newsletter.ranking.scoring import ranking_key
+
+    def key(item: RankedArticle) -> tuple[int, int, str, str]:
+        preferred = (
+            preferred_source_id is not None and item.article.source_id == preferred_source_id
+        )
+        return (0 if preferred else 1, *ranking_key(item))
+
+    return key
+
+
 def collapse_duplicate_events(
     ranked: Iterable[RankedArticle],
+    *,
+    preferred_source_id: str | None = None,
 ) -> tuple[list[RankedArticle], list[RankedArticle]]:
     """Collapse different articles that describe the same event.
 
@@ -201,11 +234,12 @@ def collapse_duplicate_events(
     id.
 
     An article whose event is incomplete is always kept -- an unknown event is not
-    evidence of a duplicate. Returns ``(kept, collapsed)``.
+    evidence of a duplicate. Returns ``(kept, collapsed)``, ``kept`` in ranking
+    order whatever ``preferred_source_id`` did to the visiting order.
     """
     from newsletter.ranking.scoring import ranking_key
 
-    ordered = sorted(ranked, key=ranking_key)
+    ordered = sorted(ranked, key=collapse_order(preferred_source_id))
     winners: dict[str, RankedArticle] = {}
     kept: list[RankedArticle] = []
     collapsed: list[RankedArticle] = []
@@ -223,6 +257,7 @@ def collapse_duplicate_events(
 
     if collapsed:
         logger.info("event collapse: kept %d, dropped %d", len(kept), len(collapsed))
+    kept.sort(key=ranking_key)
     return kept, collapsed
 
 
@@ -324,7 +359,11 @@ def content_similarity(left: Mapping[str, float], right: Mapping[str, float]) ->
 
 
 def collapse_similar_events(
-    ranked: Iterable[RankedArticle], *, threshold: float, min_score: int
+    ranked: Iterable[RankedArticle],
+    *,
+    threshold: float,
+    min_score: int,
+    preferred_source_id: str | None = None,
 ) -> tuple[list[RankedArticle], list[tuple[RankedArticle, RankedArticle]]]:
     """Collapse articles that read like the same event, on their text alone.
 
@@ -362,11 +401,20 @@ def collapse_similar_events(
     article is visited before every ineligible one, and a sub-threshold article
     never becomes a survivor that could absorb a publishable story. No model call,
     no randomness, no clock. Returns ``(kept, collapsed)``, where each collapsed
-    entry is ``(folded, survivor)``.
+    entry is ``(folded, survivor)`` and ``kept`` is in ranking order.
+
+    ``preferred_source_id`` is the one exception to both rules above, and it is
+    the reserved-slot source. Its candidates are visited first and are eligible
+    whatever they scored, because a reserved submission *is* publishable -- the
+    floor does not apply to it -- so leaving it out of the pass would let a
+    reader's link and a source's account of the same event both print. It
+    survives the fold rather than joining it, for the reason
+    :func:`deduplicate` keeps the reader's copy: the slot belongs to the
+    submission.
     """
     from newsletter.ranking.scoring import ranking_key
 
-    ordered = sorted(ranked, key=ranking_key)
+    ordered = sorted(ranked, key=collapse_order(preferred_source_id))
     profiles = similarity_profiles([item.article for item in ordered])
 
     kept: list[RankedArticle] = []
@@ -374,7 +422,10 @@ def collapse_similar_events(
     survivors: list[tuple[RankedArticle, Mapping[str, float]]] = []
 
     for article, profile in zip(ordered, profiles, strict=True):
-        if article.final_score < min_score:
+        reserved = (
+            preferred_source_id is not None and article.article.source_id == preferred_source_id
+        )
+        if article.final_score < min_score and not reserved:
             kept.append(article)
             continue
         survivor = None
@@ -391,6 +442,7 @@ def collapse_similar_events(
 
     if collapsed:
         logger.info("similarity collapse: kept %d, dropped %d", len(kept), len(collapsed))
+    kept.sort(key=ranking_key)
     return kept, collapsed
 
 

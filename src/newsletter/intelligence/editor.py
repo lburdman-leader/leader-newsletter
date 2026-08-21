@@ -243,13 +243,18 @@ def build_editor_content(
         f"issue: {window.issue_label()}",
         f"period: {window.start.date().isoformat()} to {(window.end.date()).isoformat()}",
         "",
-        "## Selected stories (already chosen and ordered; the first is the lead)",
+        "## Selected stories (already chosen and ordered; the lead is marked)",
     ]
+    # Marked rather than implied by position: reserved reader submissions are
+    # printed first but do not lead unless they also out-score the field, so
+    # "the first one" stopped being true when slots were reserved (ADR-0040).
+    lead = selection.lead
     for position, ranked in enumerate(selection.selected, start=1):
         lines.extend(
             [
                 "",
                 f"### {position}. article_id: {ranked.article.article_id}",
+                f"lead: {'yes' if ranked is lead else 'no'}",
                 f"section: {ranked.assessment.category.value}",
                 f"current_headline: {ranked.article.title}",
                 f"summary: {ranked.assessment.summary}",

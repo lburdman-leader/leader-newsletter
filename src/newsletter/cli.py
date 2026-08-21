@@ -176,6 +176,15 @@ def cmd_validate(config: AppConfig) -> int:
         for category in config.newsletter.ordered_categories()
     )
     report(f"Section limits: {limits}")
+    # How much of the edition is promised away before anything is earned: the one
+    # number that decides whether "10 stories" means ten the rubric chose.
+    reserved = config.submissions.reserved_slots
+    if not config.submissions.enabled or reserved == 0:
+        report("Reserved slots: none, submissions compete on score")
+    elif reserved is None:
+        report(f"Reserved slots: every submission, up to {config.newsletter.max_items}")
+    else:
+        report(f"Reserved slots: up to {reserved} for reader submissions")
     # The DSN is printed redacted: a connection string carries a password, and
     # nothing that reaches a terminal or a log may carry it.
     report(
@@ -204,7 +213,7 @@ def cmd_sources(config: AppConfig) -> int:
 
 
 def cmd_submit(config: AppConfig, args: argparse.Namespace) -> int:
-    """Accept a link from anyone. It earns consideration, never publication."""
+    """Accept a link from anyone. It takes a reserved slot in the next edition."""
     if not config.submissions.enabled:
         print("Submissions are disabled in config/newsletter.yaml.", file=sys.stderr)
         return EXIT_ERROR
