@@ -143,8 +143,12 @@ newsletter:
   # Measured against the real 2026-W34 pool, 5 of the 8 published stories sat
   # beyond position 50. Set `analysis_pool_max: 0` (or leave it empty) to restore
   # exhaustive assessment of the whole pool.
+  # 80, not 50. Measured against the real 2026-W34 pool: a cap of 50 keeps only
+  # 3 of the 8 stories the exhaustive run published and never assesses the week's
+  # best -- "Introducing ChatGPT for Teens", 82 against a next-best 72, at
+  # position 71. 80 keeps 7 of 10 and still skips a third of the pool.
   analysis_pool_min: 20
-  analysis_pool_max: 50
+  analysis_pool_max: 80
 
 # Reader submissions: anyone can propose a link with
 #   python -m newsletter submit <url> --by "name" --note "why"
