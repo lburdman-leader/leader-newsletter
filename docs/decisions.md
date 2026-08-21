@@ -1371,3 +1371,97 @@ submitted link can appear above a high-scoring earned one inside the same sectio
 owner's "submissions come first" policy, made visible. And a submission still counts against
 the caps for everything below it, so seven earned slots stay as diverse as ten used to be.
 
+---
+
+## 2026-08-21 · ADR-0041 · The pool is bounded and the beat has a floor, and they ship together
+
+**Decision.** Two coupled changes. The run no longer assesses the whole candidate pool:
+it assesses `newsletter.analysis_pool_min` (20) candidates, asks whether the edition
+could be published as it stands, and pulls another batch of the same size only while the
+answer is no, stopping at `analysis_pool_max` (50). And the edition now carries a
+**coverage floor** — `coverage_floors.own_beat`, at least 4 stories whose category is
+`youtube_platform`, `youtube_monetization` or `kids_content`. `analysis_pool_max: 0`
+restores exhaustive assessment exactly. No model call, no prompt, no schema version, no
+score and no `min_score` changed.
+
+**Why one change and not two.** "Could the edition be published?" is deliberately *two*
+conditions: ten stories **and** every floor met. A loop that stopped on "ten of anything"
+would make the floor unsatisfiable in exactly the weeks it exists for — the week where
+the pool is dominated by general AI news and the beat sits deep in it. That is the whole
+coupling, and it is pinned by a test.
+
+**Ordering is the design, not an implementation detail.** The obvious order — source
+priority descending — is wrong: measured on the real 2026-W34 pool, it reads 9 of 12
+sources in 50 candidates and never reaches Social Media Today, TechCrunch or The Verge at
+all, silently undoing ADR-0030/0032/0040. Round-robin across sources, newest-first within
+each, reads all 12 and makes the cap trim *depth* rather than whole beats. It costs
+something: the same measurement says priority order would have kept 4 of the 8 published
+stories against round-robin's 3 — but one of round-robin's is *YouTube simplifies its AI
+claims process*, from a source priority order never opens.
+
+**A floor bypasses nothing.** Unlike a reserved slot, which is a guarantee, a floor is a
+coverage minimum: the story it seats still clears `min_score` and still obeys
+`section_limits`, `max_per_source` and `max_per_subject`. It is seated *after* the
+reserved slots and *before* the earned ones, and that placement is the entire mechanism —
+it lets a lower-scoring story from the beat take a slot ahead of a higher-scoring story
+from elsewhere without any other rule moving.
+
+**Precedence: reserved > floor > earned.** Submissions win outright. With
+`reserved_slots: 5`, a floor of 4 and `max_items: 10`, the tight case is 5 reserved +
+4 floor + 1 earned. If reserved slots ever exceed `max_items - 4`, the floor is trimmed
+and recorded unmet rather than displacing a reader's link. A reserved submission whose
+category is in the group counts towards the floor, so a guaranteed slot and a floor slot
+never double-count.
+
+**Nothing is padded.** When the week genuinely offers fewer than four qualifying stories
+the edition publishes short: `min_score` is not lowered, an `excluded_categories` story is
+never admitted, and configuration refuses a floor that names an excluded category rather
+than letting one be permanently unmeetable.
+
+**Visibility** (rule 7). A floor deliberately prints a lower-scoring story, which is
+indistinguishable from a scoring bug unless it is recorded. The cost is *derived*, not
+guessed: the same seating pass is run once with the floors off, and whatever that line-up
+contains that the real one does not is exactly what the floors cost. Each such story lands
+in `withheld` with reason `coverage_floor` and a detail naming the story that took its
+slot. A floor the rubric would have met anyway records nothing. An unmet floor is the one
+omission `withheld` cannot express — a story that was never in the pool has no id, url or
+title — so it gets `coverage_floors_unmet` on the manifest, beside `articles_analyzed`
+and `articles_available`.
+
+**Be honest about the trade-off: a bounded pool is sampling.** Measured against the real
+2026-W34 pool of 117 candidates:
+
+| Analysed | Above threshold | Selected | `own_beat` | Of today's 10 stories, kept |
+|---------:|----------------:|---------:|-----------|----------------------------:|
+| 20 | 4 | 4 | 2 short | 3 |
+| 30 | 8 | 6 | 1 short | 4 |
+| 50 | 13 | 8 | met | 5 |
+| 80 | 18 | 10 | met | 7 |
+| 117 | 27 | 10 | met | — |
+
+**Five of the eight stories the real edition published sat beyond position 50**, and one
+of them is the week's strongest story by a wide margin — *Introducing ChatGPT for Teens*
+(score 82, the next best is 72) at position 71. At a cap of 50 that story is never
+assessed and never printed. This is not a rounding error in quality; it is the actual
+price, and it is worth more than the speedup. The cap is configuration precisely so the
+owner can pay less of it: 80 keeps 7 of 10 and still skips a third of the pool.
+
+Expected cost per run is now **50 assessments plus however many submissions the week has**,
+against 117–160 before — roughly 60% fewer model calls — and the loop will nearly always
+run to the cap, because the diversity caps mean the edition rarely fills before it.
+
+**Alternatives.** Order by source priority (starves whole beats, for one extra kept story);
+three separate per-category minima (stricter than "four from any of these three", and a
+thin week could not satisfy it); let the floor lower `min_score` or admit an excluded
+category to reach its minimum (that is padding, and the owner ruled it out); a web search
+to widen the pool (ADR-0031 stands).
+
+**Consequences.** With the floor on and the pool exhaustive, the same 2026-W34 data now
+selects 10 stories where it selected 8 — the floor pulls two more beat stories in, and
+the diversity caps had been leaving those slots empty. The probe runs `select()` once per
+batch, with the same arguments the real selection will use — including cross-edition
+suppression, which is why `published_identity_keys` is now read before assessment rather
+than after. Both halves of the pool are ordered before assessment, submissions included,
+because assessment order decides the order failures reach the manifest and assessments
+reach the cache, and neither may depend on what ingestion happened to return (AC9).
+

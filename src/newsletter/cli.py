@@ -176,6 +176,15 @@ def cmd_validate(config: AppConfig) -> int:
         for category in config.newsletter.ordered_categories()
     )
     report(f"Section limits: {limits}")
+    for name, floor in config.newsletter.coverage_floors.items():
+        group = ", ".join(category.value for category in floor.categories)
+        report(f"Coverage floor {name}: at least {floor.minimum} from {group}")
+    # The two numbers that decide what a run costs, and what it never reads.
+    cap = config.newsletter.analysis_pool_cap
+    report(
+        f"Analysis pool: {config.newsletter.analysis_pool_min} minimum, "
+        + (f"{cap} maximum (submissions excluded)" if cap else "no maximum (exhaustive)")
+    )
     # How much of the edition is promised away before anything is earned: the one
     # number that decides whether "10 stories" means ten the rubric chose.
     reserved = config.submissions.reserved_slots

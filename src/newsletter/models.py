@@ -514,6 +514,15 @@ class RunManifest(MutableModel):
     #: anything. ``articles_selected - articles_reserved`` is what the rubric
     #: earned, so an operator can read the split without re-deriving it.
     articles_reserved: int = 0
+    #: How many candidates the run actually assessed, and how many it had. The
+    #: pool is bounded (``newsletter.analysis_pool_max``), so these differ, and
+    #: the gap is the sampling an operator has to be able to see.
+    articles_analyzed: int = 0
+    articles_available: int = 0
+    #: Coverage floors the week could not fill: floor name -> how many stories
+    #: short. The one omission :class:`WithheldStory` cannot express, because a
+    #: story that was never in the pool has no id, url or title to record.
+    coverage_floors_unmet: dict[str, int] = Field(default_factory=dict)
     newsletter_generated: bool = False
 
     analyzer_model: str | None = None

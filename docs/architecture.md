@@ -259,7 +259,8 @@ a SQLite connection belongs to the thread that opened it — and the ordering ru
 ```text
 src/newsletter/ranking/
   scoring.py     the score formula, ScoreBreakdown, rank_all, ranking_key
-  selection.py   threshold, category caps, max_items, lead story, sections
+  selection.py   threshold, category caps, coverage floors, max_items, lead, sections
+  pool.py        which candidates are assessed, in what order, and how many
   dedupe.py      + collapse_duplicate_events (post-analysis, event fingerprint)
 ```
 
@@ -295,6 +296,26 @@ protects correctness: the three deduplication passes, both collapse passes, cros
 suppression, the entity-fidelity guard, `excluded_categories` and `max_items` all still
 apply. A reserved story counts against the caps for everything below it, so the earned
 slots stay diverse. `submissions.reserved_slots: 0` restores the earlier behaviour exactly.
+
+**Coverage floors** (ADR-0041). The mirror image of `section_limits`: a named group of
+categories the edition must carry a *minimum* of — `own_beat` is at least 4 stories from
+`youtube_platform`, `youtube_monetization` or `kids_content`. Unlike a reserved slot, a
+floor bypasses nothing: its story still clears `min_score` and still obeys every cap. It is
+seated **after** the reserved slots and **before** the earned ones, which is the whole
+mechanism — precedence is `reserved > floor > earned`, so a floor is trimmed and recorded
+unmet rather than displacing a reader's link. A reserved submission in the group counts
+towards the minimum. Nothing is ever padded: a week without four qualifying stories
+publishes short and records `coverage_floors_unmet` on the manifest, and the story a floor
+took the slot of is recorded in `withheld` under `coverage_floor`.
+
+**The analysis pool is bounded** (ADR-0041). Assessment is the expensive stage, so the run
+assesses `analysis_pool_min` (20) candidates, asks whether the edition could be published
+— `max_items` reached **and** every floor met, never "ten of anything" — and pulls another
+batch only while the answer is no, stopping at `analysis_pool_max` (50). Submissions are
+assessed first and outside the budget; the rest is ordered round-robin across sources,
+newest-first within each (`ranking/pool.py`), so the cap trims depth rather than whole
+beats. `analysis_pool_max: 0` restores exhaustive assessment. This is sampling, not
+exhaustive rating: ADR-0041 records what it measurably costs.
 
 **Lead story and sections** (ADR-0021). The lead is the best selected story by
 `ranking_key` — *not* the first in the printed order, since reserved slots are seated

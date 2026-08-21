@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from newsletter.config import NewsletterSettings
+from newsletter.config import CoverageFloor, NewsletterSettings
 from newsletter.models import (
     ArticleAssessment,
     NormalizedArticle,
@@ -20,6 +20,7 @@ from newsletter.ranking.selection import (
     REASON_ALREADY_PUBLISHED,
     REASON_BELOW_THRESHOLD,
     REASON_CATEGORY_LIMIT,
+    REASON_COVERAGE_FLOOR,
     REASON_DUPLICATE_EVENT,
     REASON_EXCLUDED_CATEGORY,
     REASON_MAX_ITEMS,
@@ -951,3 +952,203 @@ def test_a_reserved_story_leads_only_when_it_out_scores_the_field() -> None:
     assert weak.selected[0].article.article_id == "reader"
     assert weak.lead.article.article_id == "earned"
     assert strong.lead.article.article_id == "reader"
+
+
+# --------------------------------------------------------------------------- #
+# coverage floors — the edition always carries the beat it is published for
+# --------------------------------------------------------------------------- #
+
+#: The owner's group, and the sibling of ``section_limits``: four stories from
+#: any of these three, never one of each. ``ai_video`` is adjacent work, not the
+#: company's own beat, and is deliberately outside the group.
+OWN_BEAT = [
+    TopicCategory.YOUTUBE_PLATFORM,
+    TopicCategory.YOUTUBE_MONETIZATION,
+    TopicCategory.KIDS_CONTENT,
+]
+
+FLOORED = NewsletterSettings(
+    max_items=10,
+    min_score=70,
+    coverage_floors={"own_beat": CoverageFloor(categories=OWN_BEAT, minimum=4)},
+)
+
+
+def beat(article_id: str, score: int, **overrides: Any) -> RankedArticle:
+    """A story from the company's own beat, so a floor can count it."""
+    overrides.setdefault("category", TopicCategory.KIDS_CONTENT)
+    return make_ranked(article_id, score, **overrides)
+
+
+def test_a_floor_seats_a_weaker_beat_story_over_a_stronger_one_from_elsewhere() -> None:
+    """The whole point of a floor, and the manifest names what it cost.
+
+    Ten AI stories out-score every beat story in the pool. Without the floor the
+    edition prints ten of them; with it, four beat stories displace the four
+    weakest, and each lost slot is attributed to the story that took it.
+    """
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    pool = [make_ranked(f"ai{index:02d}", 95 - index) for index in range(10)]
+    pool += [beat(f"beat{index}", 75 - index) for index in range(4)]
+
+    result = select(pool, FLOORED, manifest=manifest)
+
+    assert [r.article.article_id for r in result.selected] == [
+        *[f"ai{index:02d}" for index in range(6)],
+        *[f"beat{index}" for index in range(4)],
+    ]
+    assert result.floors_unmet == {}
+    assert manifest.coverage_floors_unmet == {}
+    assert [(w.article_id, w.reason, w.detail) for w in manifest.withheld] == [
+        (
+            f"ai{index:02d}",
+            REASON_COVERAGE_FLOOR,
+            f"slot taken by 'Story beat{index - 6}' to meet the 'own_beat' coverage floor",
+        )
+        for index in range(6, 10)
+    ]
+
+
+def test_a_floor_the_rubric_would_have_met_anyway_costs_and_records_nothing() -> None:
+    """A floor is a minimum, not a quota: when it does not bind, it is invisible."""
+    pool = [beat(f"beat{index}", 95 - index) for index in range(4)]
+    pool += [make_ranked(f"ai{index}", 80 - index) for index in range(3)]
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+
+    floored = select(pool, FLOORED, manifest=manifest)
+    unfloored = select(pool, FLOORED.model_copy(update={"coverage_floors": {}}))
+
+    assert [r.article.article_id for r in floored.selected] == [
+        r.article.article_id for r in unfloored.selected
+    ]
+    assert manifest.withheld == []
+
+
+def test_a_thin_week_publishes_short_of_the_floor_rather_than_padding_it() -> None:
+    """Two qualifying stories, and the next candidates are ineligible.
+
+    Neither the sub-threshold story nor the excluded-category one may be admitted
+    to close the gap, so the edition runs two short and the manifest says so.
+    """
+    manifest = RunManifest(run_id="r1", started_at=NOW)
+    pool = [beat("beat0", 90), beat("beat1", 85), beat("nearly", 69)]
+    pool += [make_ranked("ai0", 95), make_ranked("excluded", 99, category=TopicCategory.OTHER)]
+
+    result = select(pool, FLOORED, manifest=manifest)
+
+    assert [r.article.article_id for r in result.selected] == ["ai0", "beat0", "beat1"]
+    assert result.floors_unmet == {"own_beat": 2}
+    assert manifest.coverage_floors_unmet == {"own_beat": 2}
+    assert not result.is_complete
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        pytest.param(
+            FLOORED.model_copy(update={"section_limits": {TopicCategory.KIDS_CONTENT: 2}}),
+            id="section_limits",
+        ),
+        pytest.param(FLOORED.model_copy(update={"max_per_source": 2}), id="max_per_source"),
+        pytest.param(FLOORED.model_copy(update={"max_per_subject": 2}), id="max_per_subject"),
+    ],
+)
+def test_a_floor_never_bypasses_a_cap_the_way_a_reserved_slot_does(
+    settings: NewsletterSettings,
+) -> None:
+    """A floor is a coverage minimum, not a guarantee, so every cap still binds.
+
+    Four beat stories qualify and each cap alone allows two, so the floor seats
+    two and reports the rest short rather than unbalancing the edition in the
+    direction the caps exist to prevent. One parametrisation per cap, so a
+    regression names the cap the floor learned to ignore.
+    """
+    pool = [
+        beat(f"beat{index}", 90 - index, event=("Northwind", "announces", f"n{index}", None))
+        for index in range(4)
+    ]
+
+    result = select(pool, settings)
+
+    assert [r.article.article_id for r in result.selected] == ["beat0", "beat1"]
+    assert result.floors_unmet == {"own_beat": 2}
+
+
+def test_the_floor_counts_any_of_its_categories_and_not_one_of_each() -> None:
+    """ "Four from these three": one-of-each would be a stricter, different rule.
+
+    Two of one category, one of another, none of the third -- a shape three
+    per-category minima would reject and the owner's rule accepts.
+    """
+    spread = [TopicCategory.KIDS_CONTENT, TopicCategory.KIDS_CONTENT]
+    spread += [TopicCategory.YOUTUBE_PLATFORM, TopicCategory.YOUTUBE_PLATFORM]
+    pool = [
+        beat(f"beat{index}", 90 - index, category=category) for index, category in enumerate(spread)
+    ]
+
+    result = select(pool, FLOORED)
+
+    assert len(result.selected) == 4
+    assert result.floors_unmet == {}
+
+
+def test_a_reserved_submission_in_the_group_counts_towards_the_floor() -> None:
+    """A guaranteed slot and a floor slot must never double-count one story."""
+    pool = [beat(f"beat{index}", 90 - index) for index in range(4)]
+    pool += [make_ranked(f"ai{index}", 95 - index) for index in range(6)]
+    reader = submitted("reader", 20, category=TopicCategory.YOUTUBE_PLATFORM)
+
+    result = reserving([reader, *pool], FLOORED)
+
+    chosen = [r.article.article_id for r in result.selected]
+    assert chosen[0] == "reader"
+    assert sorted(c for c in chosen if c.startswith("beat")) == ["beat0", "beat1", "beat2"]
+    assert result.floors_unmet == {}
+
+
+def test_reserved_slots_are_never_displaced_by_a_floor() -> None:
+    """Precedence: submissions win outright and the floor takes what is left.
+
+    Eight reserved links leave two slots, so a floor of four is trimmed to two
+    and recorded short rather than pushing a reader's link out of the edition.
+    """
+    readers = [submitted(f"reader{index}", 20 + index) for index in range(8)]
+    pool = [beat(f"beat{index}", 90 - index) for index in range(4)]
+
+    result = reserving([*readers, *pool], FLOORED, reserved_slots=8)
+
+    assert len(result.reserved) == 8
+    assert [r.article.article_id for r in result.selected[8:]] == ["beat0", "beat1"]
+    assert result.floors_unmet == {"own_beat": 2}
+
+
+def test_a_floored_edition_is_deterministic_however_the_pool_arrives() -> None:
+    """AC9 with both features armed: same pool, same edition, same rejections."""
+    pool = [make_ranked(f"ai{index:02d}", 95 - index) for index in range(10)]
+    pool += [beat(f"beat{index}", 74 + index) for index in range(3)]
+    mixed = [submitted("reader", 20, category=TopicCategory.KIDS_CONTENT), *pool]
+
+    forward = reserving(mixed, FLOORED)
+    backward = reserving(list(reversed(mixed)), FLOORED)
+
+    assert [r.article.article_id for r in forward.selected] == [
+        r.article.article_id for r in backward.selected
+    ]
+    assert [(r.ranked.article.article_id, r.reason, r.detail) for r in forward.rejected] == [
+        (r.ranked.article.article_id, r.reason, r.detail) for r in backward.rejected
+    ]
+
+
+def test_completeness_needs_the_floor_met_and_not_merely_ten_stories() -> None:
+    """The stopping rule for adaptive assessment, pinned where it is defined.
+
+    Ten stories from the wrong beat is not a finished edition, and a run that
+    stopped there would make the floor unsatisfiable whenever the beat sat deep
+    in the pool. That is the specific bug the two features exist together to avoid.
+    """
+    wrong_beat = select([make_ranked(f"ai{i:02d}", 95 - i) for i in range(10)], FLOORED)
+    assert wrong_beat.full and not wrong_beat.is_complete
+
+    pool = [make_ranked(f"ai{i:02d}", 95 - i) for i in range(6)]
+    pool += [beat(f"beat{i}", 80 - i) for i in range(4)]
+    assert select(pool, FLOORED).is_complete

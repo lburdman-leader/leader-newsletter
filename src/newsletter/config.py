@@ -64,6 +64,27 @@ class ConfigError(Exception):
 # --------------------------------------------------------------------------- #
 
 
+class CoverageFloor(ValueModel):
+    """A named group of categories the edition must carry a minimum of.
+
+    A *group* rather than three per-category minima on purpose: the requirement
+    is "at least four stories from the company's own beat", and one-of-each would
+    be a strictly stronger rule that the owner did not ask for and that a thin
+    week could not satisfy. The sibling of ``section_limits``: that caps a
+    category from above, this holds a group up from below.
+
+    A floor changes *which* stories are seated, never how many, and never what
+    counts as publishable: a floor story still clears ``min_score`` and still
+    obeys every cap. Nothing is ever padded to reach a minimum.
+    """
+
+    #: The categories that satisfy this floor. Any one of them counts.
+    categories: list[TopicCategory] = Field(min_length=1)
+    #: How many stories the edition must carry from that group, best-effort
+    #: against whatever slots reserved submissions leave free.
+    minimum: int = Field(ge=0, le=50)
+
+
 class NewsletterSettings(ValueModel):
     """Editorial policy. Cadence and thresholds are configuration, not architecture."""
 
@@ -101,6 +122,17 @@ class NewsletterSettings(ValueModel):
     check_entity_fidelity: bool = True
     #: Per-category caps that prevent one topic monopolising the edition.
     section_limits: dict[TopicCategory, int] = Field(default_factory=dict)
+    #: Named coverage floors: groups of categories the edition must carry a
+    #: minimum of, so a week of general AI news cannot leave the company's own
+    #: beat unrepresented. The mirror image of ``section_limits``.
+    coverage_floors: dict[str, CoverageFloor] = Field(default_factory=dict)
+    #: How many candidates one run assesses before it first asks whether the
+    #: edition is finished. Also the size of every later batch.
+    analysis_pool_min: int = Field(default=20, ge=1, le=500)
+    #: The hard ceiling on assessed candidates, reader submissions excluded --
+    #: a reserved link is never crowded out by a budget. ``None`` or ``0``
+    #: removes the ceiling and restores exhaustive assessment of the whole pool.
+    analysis_pool_max: int | None = Field(default=50, ge=0, le=5_000)
     #: Cap per source, so no single publication can fill the edition. None means
     #: no cap; the category limits and max_items still apply.
     max_per_source: int | None = Field(default=None, ge=1, le=50)
@@ -123,7 +155,41 @@ class NewsletterSettings(ValueModel):
         for category, limit in self.section_limits.items():
             if limit < 0:
                 raise ValueError(f"section_limits[{category.value}] must be >= 0")
+
+        excluded = set(self.excluded_categories)
+        for name, floor in self.coverage_floors.items():
+            if not name.strip():
+                raise ValueError("coverage_floors: a floor must have a name")
+            forbidden = sorted(c.value for c in floor.categories if c in excluded)
+            if forbidden:
+                # Otherwise the floor asks for stories the edition may never
+                # print, and would be permanently and inexplicably unmet.
+                raise ValueError(
+                    f"coverage_floors[{name}]: {', '.join(forbidden)} "
+                    "is in excluded_categories and can never satisfy a floor"
+                )
+            if floor.minimum > self.max_items:
+                raise ValueError(
+                    f"coverage_floors[{name}]: minimum {floor.minimum} "
+                    f"exceeds max_items {self.max_items}"
+                )
+
+        if self.analysis_pool_max and self.analysis_pool_max < self.analysis_pool_min:
+            raise ValueError(
+                f"analysis_pool_max {self.analysis_pool_max} is below "
+                f"analysis_pool_min {self.analysis_pool_min}"
+            )
         return self
+
+    @property
+    def analysis_pool_cap(self) -> int | None:
+        """The assessed-candidate ceiling, or ``None`` for "assess everything".
+
+        ``0`` and ``None`` are one setting spelled two ways -- YAML has no tidy
+        way to say "off" for a number -- and both restore the exhaustive
+        behaviour this engine had before the pool was bounded.
+        """
+        return self.analysis_pool_max or None
 
     def title_for(self, category: TopicCategory) -> str:
         return self.section_titles.get(category) or DEFAULT_SECTION_TITLES[category]

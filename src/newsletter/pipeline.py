@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from newsletter.config import AppConfig
+from newsletter.config import AppConfig, NewsletterSettings
 from newsletter.context import RunContext
 from newsletter.ingestion.base import AdapterFactory, SourceAdapter, ingest_all
 from newsletter.ingestion.http import HttpClient
@@ -41,6 +41,7 @@ from newsletter.intelligence.fidelity import (
 )
 from newsletter.logging_setup import get_logger, report, report_failure
 from newsletter.models import (
+    AssessmentRecord,
     NewsletterEdition,
     NormalizedArticle,
     PipelineStage,
@@ -55,9 +56,11 @@ from newsletter.normalization.filtering import filter_by_window
 from newsletter.persistence.base import PersistenceError, Storage
 from newsletter.persistence.factory import create_storage
 from newsletter.ranking.dedupe import PublishedKeys, deduplicate
+from newsletter.ranking.pool import batches, round_robin, split_reserved
 from newsletter.ranking.scoring import rank_all
 from newsletter.ranking.selection import (
     REASON_ALREADY_PUBLISHED,
+    REASON_COVERAGE_FLOOR,
     REASON_SIMILAR_EVENT,
     REASON_UNSUPPORTED_ENTITY,
     RejectedArticle,
@@ -214,6 +217,100 @@ def decide_submissions(
         decisions.append(submission.decide(status, reason, now=now, article_id=article_id))
 
     return decisions
+
+
+@dataclass(frozen=True)
+class AnalysisBudget:
+    """Everything the adaptive assessment loop needs to decide when to stop.
+
+    Bundled rather than passed as eight keyword arguments: the loop's whole job is
+    to run :func:`select` repeatedly, and it must run it with *exactly* the
+    arguments the real selection will use, or it would stop on an edition the run
+    then fails to produce.
+    """
+
+    settings: NewsletterSettings
+    sources: Mapping[str, SourceConfig]
+    published: PublishedKeys | None
+    reserved_source_id: str | None
+    reserved_slots: int | None
+    priorities: Mapping[str, int]
+
+    def probe(self, assessed: Sequence[tuple[NormalizedArticle, AssessmentRecord]]) -> bool:
+        """Could this edition be published as it stands?
+
+        The stopping rule, and the reason the two features ship together: an
+        edition of ten stories from the wrong beat is *not* finished, so a run
+        that stopped on "ten of anything" would make a coverage floor
+        unsatisfiable whenever the qualifying stories sat deep in the pool. No
+        manifest is passed: a probe must leave no trace.
+        """
+        return select(
+            rank_all(assessed, self.sources),
+            self.settings,
+            published=self.published,
+            reserved_source_id=self.reserved_source_id,
+            reserved_slots=self.reserved_slots,
+        ).is_complete
+
+
+def analyze_pool(
+    analyzer: ArticleAnalyzer,
+    candidates: Sequence[NormalizedArticle],
+    *,
+    budget: AnalysisBudget,
+    manifest: RunManifest,
+    now: datetime,
+) -> list[tuple[NormalizedArticle, AssessmentRecord]]:
+    """Assess as much of the pool as the edition actually needs, and no more.
+
+    Assessment is the expensive stage -- one model call per candidate, and a real
+    week offers well over a hundred for an edition of ten -- so the pool is
+    bounded and worked through in batches, stopping as soon as the edition could
+    be published. Two rules keep the bound from quietly changing what is
+    published:
+
+    * **Reader submissions are assessed first and outside the budget.** A link a
+      reader was promised a slot for is never crowded out by a cost ceiling.
+    * **The rest is ordered round-robin across sources** (see
+      :mod:`newsletter.ranking.pool`), so the cap trims the eleventh story from
+      one outlet rather than every story from a whole beat.
+
+    ``analysis_pool_max`` of ``0`` or ``None`` restores the exhaustive behaviour
+    exactly: one pass over the pool in its original order, with no probing.
+    """
+    manifest.articles_available = len(candidates)
+    cap = budget.settings.analysis_pool_cap
+    if cap is None:
+        assessed = analyzer.analyze_all(candidates, budget.sources, manifest=manifest, now=now)
+        manifest.articles_analyzed = len(candidates)
+        return assessed
+
+    reserved, rest = split_reserved(candidates, reserved_source_id=budget.reserved_source_id)
+    # Both halves are ordered, not only the budgeted one: assessment order decides
+    # the order failures reach the manifest and assessments reach the cache, and
+    # neither may depend on the order ingestion happened to return (AC9).
+    reserved = round_robin(reserved, priorities=budget.priorities)
+    ordered = round_robin(rest, priorities=budget.priorities)
+
+    assessed: list[tuple[NormalizedArticle, AssessmentRecord]] = []
+    attempted = 0
+    if reserved:
+        assessed.extend(analyzer.analyze_all(reserved, budget.sources, manifest=manifest, now=now))
+        attempted += len(reserved)
+        report(f"{len(reserved)} reader submissions assessed ahead of the pool")
+
+    for start, end in batches(len(ordered), size=budget.settings.analysis_pool_min, cap=cap):
+        assessed.extend(
+            analyzer.analyze_all(ordered[start:end], budget.sources, manifest=manifest, now=now)
+        )
+        attempted += end - start
+        if budget.probe(assessed):
+            break
+
+    manifest.articles_analyzed = attempted
+    report(f"{attempted} of {len(candidates)} candidates assessed (cap {cap})")
+    return assessed
 
 
 def drop_unsupported_stories(
@@ -388,7 +485,33 @@ def run_pipeline(
     manifest.analyzer_prompt_version = analyzer.prompt_version
     manifest.schema_version = analyzer.schema_version
 
-    assessed = analyzer.analyze_all(deduped.kept, sources_by_id, manifest=manifest, now=stamp)
+    # "Every news should be posted only once." The keys are read here, where the
+    # database lives, and handed to select(), which stays a pure function of its
+    # arguments. The issue being produced now is excluded, so re-running the same
+    # week reproduces it rather than suppressing everything it printed. They are
+    # read before assessment because the adaptive loop asks the same question the
+    # real selection will, and a probe that ignored suppression would stop on an
+    # edition of stories last week already printed.
+    published_keys: PublishedKeys | None = None
+    if database is not None and config.newsletter.suppress_already_published:
+        published_keys = database.published_identity_keys(
+            exclude_edition_id=context.issue_label,
+        )
+
+    assessed = analyze_pool(
+        analyzer,
+        deduped.kept,
+        budget=AnalysisBudget(
+            settings=config.newsletter,
+            sources=sources_by_id,
+            published=published_keys,
+            reserved_source_id=reserved_source,
+            reserved_slots=config.submissions.reserved_slots,
+            priorities=priorities,
+        ),
+        manifest=manifest,
+        now=stamp,
+    )
     report(f"{manifest.llm_cache_hits} assessments loaded from cache")
     report(f"{manifest.llm_calls} articles analyzed")
     if not assessed:
@@ -396,16 +519,6 @@ def run_pipeline(
 
     # -- score and select --------------------------------------------------- #
     ranked = rank_all(assessed, sources_by_id)
-
-    # "Every news should be posted only once." The keys are read here, where the
-    # database lives, and handed to select(), which stays a pure function of its
-    # arguments. The issue being produced now is excluded, so re-running the same
-    # week reproduces it rather than suppressing everything it printed.
-    published_keys: PublishedKeys | None = None
-    if database is not None and config.newsletter.suppress_already_published:
-        published_keys = database.published_identity_keys(
-            exclude_edition_id=context.issue_label,
-        )
 
     selection: SelectionResult = select(
         ranked,
@@ -420,6 +533,13 @@ def run_pipeline(
     for folded in selection.rejections_for(REASON_SIMILAR_EVENT):
         report(f'"{folded.ranked.article.title}" folded in: {folded.detail}')
     report(f"{selection.above_threshold} scored >= {config.newsletter.min_score}")
+    for lost in selection.rejections_for(REASON_COVERAGE_FLOOR):
+        report(f'"{lost.ranked.article.title}" gave up its slot: {lost.detail}')
+    for name, short in selection.floors_unmet.items():
+        report_failure(
+            f"coverage floor {name!r} unmet: {short} short. "
+            "The week offered no further qualifying story; nothing was padded."
+        )
     if selection.reserved:
         report(
             f"{len(selection.reserved)} reader submissions took a reserved slot; "

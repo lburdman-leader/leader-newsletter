@@ -75,6 +75,31 @@ newsletter:
     ai_models: 2
     ai_business: 2
 
+  # The mirror image of section_limits: a named group of categories the edition
+  # must carry a MINIMUM of, so a week dominated by general AI news cannot leave
+  # the beat this newspaper exists for unrepresented.
+  #
+  # One group with a minimum of 4, and deliberately not three per-category
+  # minima: the requirement is "four stories from our own beat", and one-of-each
+  # would be a stricter rule the owner did not ask for. `ai_video` is not in the
+  # group -- it is adjacent work, not the company's own beat.
+  #
+  # A floor changes WHICH stories run, never how many, and never what counts as
+  # publishable: a floor story still clears min_score and still obeys every cap.
+  # It is seated after the reserved submission slots and before the earned ones,
+  # so it can pull a lower-scoring story in ahead of a higher-scoring one -- and
+  # the story that lost the slot is named in run_manifest.json under
+  # `withheld`, reason `coverage_floor`. When the week genuinely offers fewer
+  # than four qualifying stories the edition publishes short and says so in
+  # `coverage_floors_unmet`. Nothing is ever padded to reach a minimum.
+  coverage_floors:
+    own_beat:
+      categories:
+        - youtube_platform
+        - youtube_monetization
+        - kids_content
+      minimum: 4
+
   # Publication order of the sections.
   section_order:
     - youtube_platform
@@ -95,6 +120,31 @@ newsletter:
   # Valid classification, never published.
   excluded_categories:
     - other
+
+  # How much of the week the run actually pays to assess. A real week offers
+  # 130-160 candidates for an edition of ten, and one model call each is the
+  # dominant cost and the dominant wait.
+  #
+  # The run assesses `analysis_pool_min` candidates, asks whether the edition
+  # could be published as it stands -- ten stories AND every coverage floor met,
+  # not merely ten of anything -- and pulls another batch of the same size only
+  # while the answer is no, stopping at `analysis_pool_max`.
+  #
+  # Reader submissions are assessed FIRST and do not count against the cap: a
+  # link a reader was promised a slot for is never crowded out by a budget.
+  # The rest is ordered round-robin across sources, newest first within each, so
+  # the cap trims the eleventh story from one outlet rather than every story from
+  # a whole beat. Ordering by priority instead would let the priority-7 sources
+  # fill the budget alone and Cartoon Brew, Tubefilter and Unite.AI would never
+  # be read.
+  #
+  # Be honest about what this costs: a bounded pool is sampling, not exhaustive
+  # rating, and a strong story deep in the order is never assessed at all.
+  # Measured against the real 2026-W34 pool, 5 of the 8 published stories sat
+  # beyond position 50. Set `analysis_pool_max: 0` (or leave it empty) to restore
+  # exhaustive assessment of the whole pool.
+  analysis_pool_min: 20
+  analysis_pool_max: 50
 
 # Reader submissions: anyone can propose a link with
 #   python -m newsletter submit <url> --by "name" --note "why"

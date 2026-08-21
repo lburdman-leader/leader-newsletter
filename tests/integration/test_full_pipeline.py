@@ -781,6 +781,34 @@ def test_a_submitted_link_can_reach_the_edition(tmp_path: Path, http: FakeHttpCl
         assert stored.article_id == published[0].article_id
 
 
+def test_the_analysis_cap_never_costs_a_reader_their_reserved_slot(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """End to end, with the budget squeezed to a single configured candidate.
+
+    A cap of one leaves room for exactly one story from the sources, and the
+    reader's link is assessed and published anyway: submissions are read before
+    the pool and outside its budget. The manifest carries both figures, so an
+    operator can see how much of the week went unread.
+    """
+    with Database(tmp_path / "news.sqlite") as database:
+        database.save_submission(
+            create_submission(SUBMITTED, submitted_by="Ana", now=NOW, check_address=False)
+        )
+        result = run_fixture_pipeline(
+            tmp_path,
+            submission_http(http),
+            database=database,
+            analysis_pool_min=1,
+            analysis_pool_max=1,
+        )
+
+    assert SUBMITTED in [item.source_url for item in result.edition.all_items()]
+    assert result.manifest.articles_analyzed == 2  # one submission, one candidate
+    assert result.manifest.articles_available == 5  # four fixture stories plus the link
+    assert result.manifest.llm_calls == 2
+
+
 def test_a_submission_that_cannot_be_read_is_rejected_with_a_reason(
     tmp_path: Path, http: FakeHttpClient
 ) -> None:

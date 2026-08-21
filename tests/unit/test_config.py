@@ -522,3 +522,67 @@ def test_a_reserved_slot_count_that_makes_no_sense_is_refused(config_dir: Path, 
     )
     with pytest.raises(ConfigError, match="reserved_slots"):
         load_config(config_dir, env={})
+
+
+# --------------------------------------------------------------------------- #
+# coverage floors and the analysis pool
+# --------------------------------------------------------------------------- #
+
+OWN_BEAT = [TopicCategory.YOUTUBE_PLATFORM, TopicCategory.KIDS_CONTENT]
+
+
+@pytest.mark.parametrize(
+    ("settings", "message"),
+    [
+        pytest.param(
+            {"coverage_floors": {"own_beat": {"categories": [], "minimum": 1}}},
+            "categories",
+            id="a floor with no categories can never be satisfied",
+        ),
+        pytest.param(
+            {"coverage_floors": {"own_beat": {"categories": [TopicCategory.OTHER], "minimum": 1}}},
+            "excluded_categories",
+            id="a floor on a category the edition never prints",
+        ),
+        pytest.param(
+            {
+                "max_items": 3,
+                "coverage_floors": {"own_beat": {"categories": OWN_BEAT, "minimum": 4}},
+            },
+            "exceeds max_items",
+            id="a floor larger than the edition",
+        ),
+        pytest.param(
+            {"analysis_pool_min": 60, "analysis_pool_max": 50},
+            "analysis_pool_max",
+            id="a ceiling below its own first batch",
+        ),
+    ],
+)
+def test_an_unsatisfiable_policy_is_refused_before_the_run_starts(
+    settings: dict[str, object], message: str
+) -> None:
+    """Each of these would fail silently at run time -- a floor permanently unmet,
+    or a batch loop that can never take its first batch."""
+    with pytest.raises(ValueError, match=message):
+        NewsletterSettings(**settings)
+
+
+@pytest.mark.parametrize(("configured", "expected"), [(0, None), (None, None), (50, 50)])
+def test_zero_and_empty_both_mean_no_analysis_cap(
+    configured: int | None, expected: int | None
+) -> None:
+    """YAML has no tidy way to say "off" for a number, so both spellings work."""
+    assert NewsletterSettings(analysis_pool_max=configured).analysis_pool_cap == expected
+
+
+def test_the_shipped_configuration_carries_the_owners_own_beat_floor() -> None:
+    """The floor is editorial policy, so the real config is what states it."""
+    floors = load_config(REAL_CONFIG_DIR, env={}).newsletter.coverage_floors
+
+    assert floors["own_beat"].minimum == 4
+    assert set(floors["own_beat"].categories) == {
+        TopicCategory.YOUTUBE_PLATFORM,
+        TopicCategory.YOUTUBE_MONETIZATION,
+        TopicCategory.KIDS_CONTENT,
+    }
