@@ -16,7 +16,9 @@ Two safety properties are enforced here, immediately before anything is written:
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,8 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from newsletter.config import DEFAULT_SECTION_TITLES
 from newsletter.logging_setup import get_logger
 from newsletter.models import (
+    ISSUE_LABEL_PATTERN,
+    IssueRef,
     NewsletterEdition,
     RankedArticle,
     RunManifest,
@@ -129,6 +133,89 @@ def build_environment() -> Environment:
 
 
 # --------------------------------------------------------------------------- #
+# paging between issues
+# --------------------------------------------------------------------------- #
+
+#: An issue label that names an ISO week, so it can be said out loud.
+_WEEK_LABEL_PATTERN = re.compile(r"\d{4}-W(?P<week>\d{2})")
+
+
+@dataclass(frozen=True)
+class IssueLink:
+    """One paging control: the issue it leads to, where it lives, what it says.
+
+    ``href`` is deliberately relative and always of the shape
+    ``../<label>/newsletter.html``. That one string works in both places the
+    edition is read: on disk it resolves to the sibling issue directory, and when
+    the server answers ``/`` with this file it resolves to
+    ``/<label>/newsletter.html``, which is a route. An absolute link would have
+    to guess a host the edition does not know.
+    """
+
+    issue_label: str
+    href: str
+    text: str
+
+
+def issue_week_text(issue_label: str) -> str:
+    """``2026-W33`` -> ``Semana 33``; any other label is printed as stored.
+
+    A bare arrow tells a reader nothing, so every enabled control names its
+    destination. The masthead spells the *current* label out with its year as
+    well; an arrow has less room and the year is already on the page.
+    """
+    match = _WEEK_LABEL_PATTERN.fullmatch(issue_label)
+    return f"Semana {int(match['week'])}" if match else issue_label
+
+
+def issue_link(issue: IssueRef | None) -> IssueLink | None:
+    """A paging control for ``issue``, or None when there is nothing to link to.
+
+    A label the web reader would refuse to serve is dropped rather than printed:
+    linking it would put a dead address in an archived artifact, and building a
+    relative path out of an unvetted label is how ``../`` gets into an href.
+    """
+    if issue is None:
+        return None
+    if not ISSUE_LABEL_PATTERN.fullmatch(issue.issue_label):
+        logger.warning("issue %r cannot be linked from an edition", issue.issue_label)
+        return None
+    return IssueLink(
+        issue_label=issue.issue_label,
+        href=f"../{issue.issue_label}/{HTML_FILENAME}",
+        text=issue_week_text(issue.issue_label),
+    )
+
+
+def issue_neighbours(
+    edition: NewsletterEdition, issues: Sequence[IssueRef]
+) -> tuple[IssueLink | None, IssueLink | None]:
+    """The nearest older and nearest newer generated issues, as paging controls.
+
+    ``issues`` is what the database says was published. The edition being
+    rendered is folded in whether or not it is there yet -- on a first run the
+    artifacts are written before the edition row is saved -- and its own period
+    start is what places it, so re-printing a week that was never published still
+    lands it between the right neighbours.
+
+    The ordering is done here, in Python, rather than trusted from the backend:
+    the same stored editions must produce byte-identical artifacts whichever
+    database served them (AC9).
+    """
+    here = IssueRef(issue_label=edition.issue_label, period_start=edition.period_start)
+    known: dict[str, IssueRef] = {here.issue_label: here}
+    for issue in issues:
+        known.setdefault(issue.issue_label, issue)
+
+    ordered = sorted(known.values(), key=lambda issue: (issue.period_start, issue.issue_label))
+    index = next(i for i, issue in enumerate(ordered) if issue.issue_label == here.issue_label)
+
+    previous = ordered[index - 1] if index > 0 else None
+    following = ordered[index + 1] if index + 1 < len(ordered) else None
+    return issue_link(previous), issue_link(following)
+
+
+# --------------------------------------------------------------------------- #
 # link validation (AC4, AC13)
 # --------------------------------------------------------------------------- #
 
@@ -198,8 +285,19 @@ def checked_submit_url(submit_url: str | None) -> str | None:
 
 
 def render_html(
-    edition: NewsletterEdition, *, tagline: str = "", submit_url: str | None = None
+    edition: NewsletterEdition,
+    *,
+    tagline: str = "",
+    submit_url: str | None = None,
+    previous_issue: IssueLink | None = None,
+    next_issue: IssueLink | None = None,
 ) -> str:
+    """Render the newspaper.
+
+    ``previous_issue`` and ``next_issue`` come from :func:`issue_neighbours`;
+    ``None`` for either renders that arrow as an unclickable, disabled control
+    rather than as a link with nowhere to go.
+    """
     return (
         build_environment()
         .get_template(HTML_TEMPLATE)
@@ -208,6 +306,8 @@ def render_html(
             tagline=tagline,
             submit_url=checked_submit_url(submit_url),
             category_titles=category_titles_for(edition),
+            previous_issue=previous_issue,
+            next_issue=next_issue,
         )
     )
 
@@ -258,6 +358,8 @@ def write_edition(
     manifest: RunManifest | None = None,
     tagline: str = "",
     submit_url: str | None = None,
+    previous_issue: IssueLink | None = None,
+    next_issue: IssueLink | None = None,
     allowed_urls: Collection[str] | None = None,
 ) -> dict[str, Path]:
     """Validate, render and write every artifact. Returns name -> path."""
@@ -273,7 +375,17 @@ def write_edition(
         path.write_text(content, encoding="utf-8", newline="\n")
         written[name] = path
 
-    write("html", HTML_FILENAME, render_html(edition, tagline=tagline, submit_url=submit_url))
+    write(
+        "html",
+        HTML_FILENAME,
+        render_html(
+            edition,
+            tagline=tagline,
+            submit_url=submit_url,
+            previous_issue=previous_issue,
+            next_issue=next_issue,
+        ),
+    )
     write("markdown", MARKDOWN_FILENAME, render_markdown(edition, submit_url=submit_url))
     write("json", JSON_FILENAME, render_json(edition))
     if ranked is not None:

@@ -91,13 +91,21 @@ def record_edition(storage_path: Path, label: str) -> None:
         database.save_edition(edition)
 
 
-def publish_edition(storage_path: Path, output_dir: Path, label: str = ISSUE) -> Path:
+def publish_edition(
+    storage_path: Path, output_dir: Path, label: str = ISSUE, body: str | None = None
+) -> Path:
     """Record an edition *and* write the artifact the run would have written."""
     record_edition(storage_path, label)
     path = output_dir / label / EDITION_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(EDITION_HTML, encoding="utf-8", newline="\n")
+    path.write_text(body or EDITION_HTML, encoding="utf-8", newline="\n")
     return path
+
+
+def plant_run_internals(output_dir: Path, label: str = ISSUE) -> None:
+    """The two files a run writes beside the edition. Neither is publishable."""
+    for filename in ("run_manifest.json", "selected_articles.json"):
+        (output_dir / label / filename).write_text(SECRET, encoding="utf-8")
 
 
 @pytest.fixture
@@ -224,14 +232,14 @@ def test_a_stored_label_that_is_not_a_plain_issue_name_reads_nothing(
         "/../",
         "/../../etc/passwd",
         "/%2e%2e/",
-        f"/{ISSUE}/{EDITION_FILENAME}",
+        f"/{EDITION_FILENAME}",
         f"/output/{ISSUE}/{EDITION_FILENAME}",
     ],
 )
-def test_a_request_that_asks_for_a_file_by_name_gets_a_404(
+def test_a_request_for_a_path_that_is_no_route_gets_a_404(
     app: SubmissionApp, storage_path: Path, output_dir: Path, path: str
 ) -> None:
-    """Only ``/`` serves a file, and it takes its name from the database."""
+    """Two paths serve an edition: ``/`` and one issue directory named in full."""
     publish_edition(storage_path, output_dir)
 
     reply = call(app, path=path)
@@ -239,6 +247,68 @@ def test_a_request_that_asks_for_a_file_by_name_gets_a_404(
     assert reply.code == 404
     assert EDITION_HTML not in reply.body
     assert path not in reply.body
+
+
+# --------------------------------------------------------------------------- #
+# the edition at /<issue>/newsletter.html -- where the masthead arrows lead
+# --------------------------------------------------------------------------- #
+
+
+def test_an_older_issue_is_served_by_name_not_as_an_alias_for_the_latest(
+    app: SubmissionApp, storage_path: Path, output_dir: Path
+) -> None:
+    """What ``../2026-W33/newsletter.html`` resolves to once the file is served."""
+    older = "<!DOCTYPE html>\n<html lang=es><body><h1>La semana pasada</h1></body></html>\n"
+    publish_edition(storage_path, output_dir, "2026-W33", body=older)
+    publish_edition(storage_path, output_dir)
+
+    reply = call(app, path=f"/2026-W33/{EDITION_FILENAME}")
+
+    assert reply.code == 200
+    assert reply.body == older
+    assert reply.headers["Content-Type"] == "text/html; charset=utf-8"
+    assert reply.headers["X-Content-Type-Options"] == "nosniff"
+    assert reply.headers["Referrer-Policy"] == "no-referrer"
+    assert "default-src 'none'" in reply.headers["Content-Security-Policy"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(f"/{ISSUE}/run_manifest.json", id="the run manifest beside the edition"),
+        pytest.param(f"/{ISSUE}/selected_articles.json", id="the scored story list"),
+        pytest.param(f"/../secret/{EDITION_FILENAME}", id="climbs out of the output directory"),
+        pytest.param(f"/{ISSUE}/../{ISSUE}/{EDITION_FILENAME}", id="climbs and comes back"),
+        pytest.param(f"/.hidden/{EDITION_FILENAME}", id="a dotfile directory"),
+        pytest.param(f"/2026-W99/{EDITION_FILENAME}", id="a week nobody ever printed"),
+    ],
+)
+def test_the_issue_route_reaches_one_filename_in_one_directory_and_nothing_else(
+    app: SubmissionApp, storage_path: Path, output_dir: Path, tmp_path: Path, path: str
+) -> None:
+    """The request may contribute a label. It may never contribute a filename."""
+    publish_edition(storage_path, output_dir)
+    plant_run_internals(output_dir)
+    planted = tmp_path / "secret" / EDITION_FILENAME
+    planted.parent.mkdir(parents=True, exist_ok=True)
+    planted.write_text(SECRET, encoding="utf-8")
+
+    reply = call(app, path=path)
+
+    assert reply.code == 404
+    assert SECRET not in reply.body
+    assert path not in reply.body
+
+
+def test_the_issue_route_answers_only_get(
+    app: SubmissionApp, storage_path: Path, output_dir: Path
+) -> None:
+    publish_edition(storage_path, output_dir)
+
+    reply = call(app, method="POST", path=f"/{ISSUE}/{EDITION_FILENAME}", fields={})
+
+    assert reply.code == 405
+    assert reply.headers["Allow"] == "GET"
 
 
 # --------------------------------------------------------------------------- #

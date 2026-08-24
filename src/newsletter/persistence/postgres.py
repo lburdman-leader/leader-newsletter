@@ -42,6 +42,7 @@ from newsletter.logging_setup import get_logger
 from newsletter.models import (
     AssessmentRecord,
     DateWindow,
+    IssueRef,
     NewsletterEdition,
     NormalizedArticle,
     RunManifest,
@@ -528,6 +529,23 @@ class PostgresStorage:
             "ORDER BY generated_at DESC, edition_id DESC LIMIT 1"
         )
         return str(row["issue_label"]) if row else None
+
+    def generated_issues(self) -> list[IssueRef]:
+        """Every issue an edition was generated for, one row per label.
+
+        Semantically identical to the SQLite query. ``MIN(period_start)`` is
+        repeated in the ``ORDER BY`` rather than referenced by its output name,
+        which is ambiguous here with the input column of the same name.
+        """
+        rows = self._fetchall(
+            "SELECT issue_label, MIN(period_start) AS period_start "
+            "FROM newsletter_editions GROUP BY issue_label "
+            "ORDER BY MIN(period_start), issue_label"
+        )
+        return [
+            IssueRef(issue_label=str(row["issue_label"]), period_start=row["period_start"])
+            for row in rows
+        ]
 
     def get_edition_article_ids(self, edition_id: str) -> list[str]:
         rows = self._fetchall(

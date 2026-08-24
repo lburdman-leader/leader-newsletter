@@ -4,13 +4,25 @@
 the whole loop -- read the newspaper, propose a link, have it considered on the
 next run -- happens without a terminal.
 
-**The edition is served from a name the database chose, never one the request
-carried.** ``/`` takes no parameter: the issue label comes from
+**``/`` is served from a name the database chose, never one the request
+carried.** It takes no parameter: the issue label comes from
 :meth:`~newsletter.persistence.base.Storage.latest_issue_label`, is matched
-against :data:`ISSUE_LABEL_PATTERN`, and only then joins the configured output
-directory with a fixed filename. The joined path is resolved and checked to be
-inside that directory, so a symlinked edition folder cannot reach out of it
-either. Every other path is a 404 that names no path but the form's.
+against :data:`~newsletter.models.ISSUE_LABEL_PATTERN`, and only then joins the
+configured output directory with a fixed filename. The joined path is resolved
+and checked to be inside that directory, so a symlinked edition folder cannot
+reach out of it either.
+
+**``/<issue>/newsletter.html`` is the one route that takes a path from the
+request**, because the arrows printed in the masthead have to lead somewhere.
+It is the same machinery with one extra step in front: the request may
+contribute *only* the label, it goes through the identical pattern, and the
+filename is the literal :data:`EDITION_FILENAME` rather than anything the
+request said. The output directory also holds ``run_manifest.json`` and
+``selected_articles.json`` -- scores, withheld stories, source internals -- so
+"only one filename" is structural here, not a filter: no request can name a
+file, only a directory to look for that one file in. A label the pattern refuses,
+or one no edition was written for, is the same 404 as any other unknown path,
+and that 404 echoes no path but the form's.
 
 **Why WSGI and not a framework.** The application is a plain callable, which
 ``wsgiref.simple_server`` runs locally with no dependency at all and which
@@ -35,7 +47,6 @@ slot in the next edition rather than merely a place in the running.
 from __future__ import annotations
 
 import html
-import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -44,7 +55,7 @@ from urllib.parse import parse_qsl
 from newsletter.config import AppConfig
 from newsletter.ingestion.submissions import SubmissionRejected, create_submission
 from newsletter.logging_setup import get_logger
-from newsletter.models import Submission, SubmissionStatus
+from newsletter.models import ISSUE_LABEL_PATTERN, Submission, SubmissionStatus
 from newsletter.persistence.base import Storage
 from newsletter.persistence.factory import create_storage
 
@@ -62,14 +73,29 @@ FORM_MEDIA_TYPE = "application/x-www-form-urlencoded"
 FORM_PATH = "/submit"
 EDITION_PATH = "/"
 
-#: The one file ``/`` may open, inside the one directory it may look in.
+#: The one file either edition route may open, inside the one directory it may
+#: look in. It is a constant, never interpolated from a request, which is what
+#: keeps ``run_manifest.json`` and ``selected_articles.json`` unreachable.
 EDITION_FILENAME = "newsletter.html"
 
-#: What an issue label is allowed to look like before it may name a directory.
-#: It must *start* alphanumeric, which rules out ``..`` and dotfiles, and the
-#: character class contains no separator, so a label can only ever name one
-#: directory directly under the output directory.
-ISSUE_LABEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+def issue_label_in(path: str) -> str | None:
+    """The issue label in ``/<label>/newsletter.html``, or None if that is not it.
+
+    Written as a split rather than a regex over the whole path so that the two
+    halves of the rule are visible separately: the last segment must *equal*
+    :data:`EDITION_FILENAME`, and what precedes it must be a single label that
+    :data:`~newsletter.models.ISSUE_LABEL_PATTERN` accepts. The pattern contains
+    no separator, so ``/a/b/newsletter.html``, ``/../newsletter.html`` and
+    ``/output/2026-W34/newsletter.html`` all fail it, and no other filename can
+    reach the second half of the check at all.
+    """
+    head, slash, filename = path.rpartition("/")
+    if not slash or filename != EDITION_FILENAME or not head.startswith("/"):
+        return None
+    label = head[1:]
+    return label if ISSUE_LABEL_PATTERN.fullmatch(label) else None
+
 
 #: The command that produces the thing ``/`` serves, printed when there is none.
 RUN_COMMAND = "python -m newsletter run"
@@ -364,6 +390,17 @@ class SubmissionApp:
                 return self.post_form(environ, form_path)
             return self.method_not_allowed(("GET", "POST"), form_path)
 
+        label = issue_label_in(path)
+        if label is not None:
+            if method != "GET":
+                return self.method_not_allowed(("GET",), form_path)
+            edition = self.read_edition(label)
+            if edition is not None:
+                return respond("200 OK", edition)
+            # Falls through to the same 404 an unknown path gets: a reader who
+            # guesses a week that was never printed learns nothing a reader who
+            # guesses a nonsense path does not.
+
         return respond(
             "404 Not Found",
             outcome_page(
@@ -477,20 +514,25 @@ class SubmissionApp:
             storage.close()
 
     def read_latest_edition(self) -> bytes | None:
-        """The bytes of the latest edition's HTML, or None when there is none.
-
-        Three things have to hold before a byte is read: the database names an
-        issue, the name is one :data:`ISSUE_LABEL_PATTERN` accepts, and the file
-        it resolves to is still inside the configured output directory. A label
-        that fails any of them is treated as "no edition" -- the reader is never
-        told what the server looked for, and the operator gets the reason in the
-        log.
-        """
+        """The bytes of the latest edition's HTML, or None when there is none."""
         label = self.latest_issue_label()
-        if label is None:
-            return None
+        return None if label is None else self.read_edition(label)
+
+    def read_edition(self, label: str) -> bytes | None:
+        """The bytes of one issue's HTML, or None when it cannot be served.
+
+        The single place either route opens a file, so both are defended
+        identically. Three things have to hold before a byte is read: the label
+        is one :data:`~newsletter.models.ISSUE_LABEL_PATTERN` accepts, the
+        filename is the constant :data:`EDITION_FILENAME` rather than anything a
+        caller chose, and the resolved path is still inside the configured output
+        directory -- which a pattern check alone cannot prove, because the
+        edition directory may be a symlink. A label that fails any of them reads
+        nothing: the reader is never told what the server looked for, and the
+        operator gets the reason in the log.
+        """
         if not ISSUE_LABEL_PATTERN.fullmatch(label):
-            logger.warning("stored issue label is not servable: %r", label)
+            logger.warning("issue label is not servable: %r", label)
             return None
 
         root = Path(self.config.runtime.output_dir).resolve()
@@ -501,8 +543,9 @@ class SubmissionApp:
         try:
             return path.read_bytes()
         except OSError as exc:
-            # The artifacts were deleted, or the output directory moved since the
-            # run. That is a missing newspaper, not a server failure.
+            # The artifacts were deleted, the output directory moved since the
+            # run, or nobody ever printed that week. That is a missing
+            # newspaper, not a server failure.
             logger.warning("cannot read the edition for %s: %s", label, exc)
             return None
 

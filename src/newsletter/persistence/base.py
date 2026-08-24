@@ -34,6 +34,7 @@ from typing import Protocol, runtime_checkable
 from newsletter.models import (
     AssessmentRecord,
     DateWindow,
+    IssueRef,
     NewsletterEdition,
     NormalizedArticle,
     RunManifest,
@@ -168,6 +169,23 @@ class Storage(Protocol):
         copy, a restore or a checkout rewrites. The web reader turns the label
         into the one artifact path it is allowed to open, so a backend must
         return a label exactly as it was stored, never a path.
+        """
+        ...
+
+    def generated_issues(self) -> list[IssueRef]:
+        """Every issue an edition was actually generated for, one row per label.
+
+        Part of the contract rather than a read-back helper, because the printed
+        edition depends on it: the paging controls in the masthead may only point
+        at issues that exist, and the database is the only thing that knows which
+        those are. Scanning the output directory would offer the reader
+        ``sample-edition`` and ``fixture-edition``, which no run ever published.
+
+        Two editions may carry the same label -- a week re-run under a new
+        ``edition_id`` -- so the result is one entry per label, taking the
+        earliest period start. Order is total (period start, then label), but the
+        caller sorts again: two backends must not be able to disagree about the
+        links inside an artifact (AC9).
         """
         ...
 

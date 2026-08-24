@@ -21,7 +21,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from tests.unit.test_renderer import SUBMIT_URL, build_fixture_edition  # noqa: E402
+from tests.unit.test_renderer import (  # noqa: E402
+    PREVIOUS_ISSUE,
+    SUBMIT_URL,
+    build_fixture_edition,
+)
 
 from newsletter.rendering.renderer import (  # noqa: E402
     render_html,
@@ -35,6 +39,10 @@ TAGLINE = "Platform, model and monetization intelligence for the week"
 # SUBMIT_URL comes from the test module: the golden edition carries the reader
 # call to action, and it must be the same address the tests render with or the
 # golden comparison fails for a reason that has nothing to do with the template.
+# PREVIOUS_ISSUE comes from there for the same reason. The golden is pinned in
+# the state every freshly printed edition is in: a week behind it exists, no week
+# ahead of it does yet, so both paging states -- the link and the spent arrow --
+# are in the committed artifact.
 
 
 def main(argv: list[str]) -> int:
@@ -48,7 +56,7 @@ def main(argv: list[str]) -> int:
         render_json(edition), encoding="utf-8", newline="\n"
     )
     (FIXTURES / "expected_newsletter.html").write_text(
-        render_html(edition, tagline=TAGLINE, submit_url=SUBMIT_URL),
+        render_html(edition, tagline=TAGLINE, submit_url=SUBMIT_URL, previous_issue=PREVIOUS_ISSUE),
         encoding="utf-8",
         newline="\n",
     )
@@ -57,7 +65,12 @@ def main(argv: list[str]) -> int:
     if "--sample" in argv:
         target = ROOT / "output" / "sample-edition"
         written = write_edition(
-            edition, target, ranked=ranked, tagline=TAGLINE, submit_url=SUBMIT_URL
+            edition,
+            target,
+            ranked=ranked,
+            tagline=TAGLINE,
+            submit_url=SUBMIT_URL,
+            previous_issue=PREVIOUS_ISSUE,
         )
         print("wrote a browsable sample edition:")
         for name, path in written.items():

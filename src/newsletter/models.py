@@ -13,6 +13,7 @@ they protect published output:
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, Any
@@ -121,6 +122,18 @@ def validate_public_url(value: str) -> str:
 
 #: A URL that is safe to publish as a hyperlink.
 PublicUrl = Annotated[str, AfterValidator(validate_public_url)]
+
+#: What an issue label is allowed to look like before it may name a directory.
+#:
+#: An issue label is the only part of an artifact path that is not a constant, so
+#: it is the only part that can be attacked. It must *start* alphanumeric, which
+#: rules out ``..`` and dotfiles, and the character class contains no separator,
+#: so a label can only ever name one directory directly under the output
+#: directory. It lives here, beside :func:`validate_public_url`, because both the
+#: web reader (which turns a label into the one file it may open) and the
+#: renderer (which turns a label into the one relative link it may print) have to
+#: agree on it, and a second copy of this pattern is a second thing to get wrong.
+ISSUE_LABEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 #: A 0-5 integer rubric rating produced by the analyzer.
 Rating = Annotated[int, Field(ge=0, le=5)]
@@ -409,6 +422,19 @@ class NewsletterEdition(ValueModel):
                 seen.add(item.article_id)
                 ordered.append(item)
         return ordered
+
+
+class IssueRef(ValueModel):
+    """One generated edition, reduced to what paging between issues needs.
+
+    The label names the artifact directory; the period start says which week the
+    issue covers, and is what orders one issue against another. Generation time
+    is deliberately not part of it: a week re-run late is still that week, and a
+    reader paging backwards expects the previous *week*, not the previous run.
+    """
+
+    issue_label: str = Field(min_length=1)
+    period_start: AwareDatetime
 
 
 # --------------------------------------------------------------------------- #

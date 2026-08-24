@@ -191,9 +191,15 @@ python -m newsletter serve            # http://127.0.0.1:8765/         the lates
 
 `/` serves the most recently **generated** edition — the one the database recorded last, not
 the newest file on disk — read from `<output_dir>/<issue_label>/newsletter.html`. The issue
-label comes from the database and never from the request, so there is nothing in the URL to
-point at another file; anything else is a 404. Before the first run there is nothing to
-serve, and the page says so and names the command that fixes it.
+label comes from the database and never from the request. Before the first run there is
+nothing to serve, and the page says so and names the command that fixes it.
+
+`/<issue label>/newsletter.html` serves one back issue, which is where the `← Semana 33`
+arrows in the masthead lead. It is the only route that takes anything from the URL, and it
+takes exactly one thing: a directory name, matched against the same pattern `/` uses and
+joined to the fixed filename `newsletter.html`. The run manifest and the scored story list
+sitting in the same directory are not reachable — no request can name a file. A label that
+does not match, or a week nobody printed, is a 404, and so is anything else.
 
 The form asks for three things — **full name**, **link**, and an optional **description** —
 and writes them straight into the `submissions` table of the configured database

@@ -196,7 +196,8 @@ src/newsletter/
     prompts/article_analyzer_v{1,2,3}.md (v3 live), newsletter_editor_v{1,2}.md (v2 live)
   pipeline.py               the state machine: one run, injectable collaborators
   ingestion/submissions.py  reader-submission gate, adapter and identity
-  web/app.py                the edition at / and the form at /submit, as a WSGI callable
+  web/app.py                the edition at /, back issues at /<issue>/newsletter.html,
+                            the form at /submit, as a WSGI callable
   rendering/
     renderer.py             link validation, Jinja env, artifact writing
     templates/newsletter.html.j2, templates/newsletter.md.j2

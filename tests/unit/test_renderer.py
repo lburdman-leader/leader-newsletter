@@ -30,6 +30,7 @@ from newsletter.intelligence.editor import (
 from newsletter.models import (
     ArticleAssessment,
     DateWindow,
+    IssueRef,
     NormalizedArticle,
     RankedArticle,
     RunManifest,
@@ -39,6 +40,8 @@ from newsletter.ranking.scoring import score_components
 from newsletter.ranking.selection import SelectionResult, select
 from newsletter.rendering.renderer import (
     RenderError,
+    issue_link,
+    issue_neighbours,
     markdown_escape,
     render_html,
     render_json,
@@ -120,12 +123,28 @@ def edition(selection: SelectionResult):
 SUBMIT_URL = "https://intake.example/submit"
 
 
+def make_issue(label: str, weeks_before: int) -> IssueRef:
+    return IssueRef(issue_label=label, period_start=WINDOW.start - timedelta(weeks=weeks_before))
+
+
+def edition_ref(edition) -> IssueRef:
+    """The edition as the database would have stored it, once the run saved it."""
+    return IssueRef(issue_label=edition.issue_label, period_start=edition.period_start)
+
+
+#: The week behind the fixture edition. Shared with
+#: scripts/refresh_expected_edition.py so the golden carries the state every
+#: freshly printed edition is in: one week back exists, none ahead does.
+PREVIOUS_ISSUE = issue_link(make_issue("2026-W33", 1))
+
+
 @pytest.fixture
 def html(edition) -> str:
     return render_html(
         edition,
         tagline="Platform, model and monetization intelligence",
         submit_url=SUBMIT_URL,
+        previous_issue=PREVIOUS_ISSUE,
     )
 
 
@@ -316,12 +335,12 @@ def test_html_has_a_masthead_and_issue_metadata(html: str) -> None:
 
 
 def test_an_unexpected_issue_label_is_printed_verbatim(edition) -> None:
-    """The masthead spells out ``YYYY-Www`` only; anything else passes through."""
+    """The issue strip spells out ``YYYY-Www`` only; anything else passes through."""
     html = render_html(edition.model_copy(update={"issue_label": "especial-verano"}))
-    masthead = html.split("</header>")[0]
+    strip = html.split('<div class="issue-strip">')[1].split("</div>")[0]
 
-    assert "especial-verano" in masthead
-    assert "Semana" not in masthead
+    assert "especial-verano" in strip
+    assert "Semana" not in strip
 
 
 def test_html_has_an_executive_brief_and_a_lead_story(html: str) -> None:
@@ -351,13 +370,24 @@ def test_every_story_has_a_visible_read_original_link(html: str, edition) -> Non
 
 
 def test_external_links_are_safe_and_absolute(html: str) -> None:
-    hrefs = re.findall(r'<a [^>]*href="([^"]+)"', html)
-    assert hrefs
-    for href in hrefs:
-        assert href.startswith("https://")
-    for anchor in re.findall(r"<a [^>]*>", html):
+    """Everything that leaves the edition is https and opens away from it."""
+    anchors = re.findall(r"<a [^>]*>", html)
+    outbound = [anchor for anchor in anchors if 'href="http' in anchor]
+    assert outbound
+    for anchor in outbound:
+        assert 'href="https://' in anchor
         assert 'rel="noopener noreferrer"' in anchor
         assert 'target="_blank"' in anchor
+
+
+def test_the_only_links_that_stay_inside_the_edition_are_the_paging_arrows(html: str) -> None:
+    """Relative is the point: the same href resolves on disk and under the server."""
+    internal = [anchor for anchor in re.findall(r"<a [^>]*>", html) if 'href="http' not in anchor]
+
+    assert len(internal) == 1  # the fixture has a week behind it and none ahead
+    for anchor in internal:
+        assert re.search(r'href="\.\./[A-Za-z0-9][A-Za-z0-9._-]*/newsletter\.html"', anchor)
+        assert "target=" not in anchor
 
 
 def test_the_page_needs_no_javascript(html: str) -> None:
@@ -401,6 +431,67 @@ def test_scraped_markup_in_a_headline_is_escaped_not_injected() -> None:
 
 def test_html_is_deterministic(edition) -> None:
     assert render_html(edition) == render_html(edition)
+
+
+# --------------------------------------------------------------------------- #
+# paging between issues
+# --------------------------------------------------------------------------- #
+
+
+def nav_of(html: str) -> str:
+    return html.split('<nav class="issue-nav"', 1)[1].split("</nav>", 1)[0]
+
+
+def test_each_arrow_leads_to_the_nearest_generated_week_on_that_side(edition) -> None:
+    """W34 is being printed; W32 and W35 exist, so W33 and W36 must not be reached."""
+    previous, following = issue_neighbours(
+        edition,
+        [make_issue("2026-W32", 2), make_issue("2026-W35", -1), edition_ref(edition)],
+    )
+
+    assert (previous.issue_label, previous.href) == ("2026-W32", "../2026-W32/newsletter.html")
+    assert previous.text == "Semana 32"
+    assert (following.issue_label, following.href) == ("2026-W35", "../2026-W35/newsletter.html")
+    assert following.text == "Semana 35"
+
+
+def test_the_week_being_printed_counts_even_before_the_run_saves_it(edition) -> None:
+    """The artifacts are written before the edition row: the ordering must not care."""
+    previous, following = issue_neighbours(edition, [make_issue("2026-W33", 1)])
+
+    assert previous.issue_label == "2026-W33"
+    assert following is None
+
+
+def test_the_issue_order_does_not_depend_on_the_order_the_database_returned(edition) -> None:
+    """AC9: identical stored editions, byte-identical artifact, whichever backend."""
+    issues = [make_issue("2026-W31", 3), make_issue("2026-W32", 2), make_issue("2026-W33", 1)]
+
+    assert render_html(edition, previous_issue=issue_neighbours(edition, issues)[0]) == render_html(
+        edition, previous_issue=issue_neighbours(edition, list(reversed(issues)))[0]
+    )
+
+
+def test_a_neighbour_the_server_would_refuse_to_serve_is_not_linked(edition) -> None:
+    """A label that could build ``../../`` never becomes an href."""
+    assert issue_link(make_issue("../secret", 1)) is None
+
+
+def test_an_edition_with_no_neighbours_renders_both_arrows_unclickable(edition) -> None:
+    """A dead arrow is a span, never an anchor pointing nowhere."""
+    nav = nav_of(render_html(edition))
+
+    assert nav.count('<span class="spent" aria-disabled="true">') == 2
+    assert "<a " not in nav
+    assert "&larr; Semana anterior" in nav and "Semana siguiente &rarr;" in nav
+
+
+def test_a_reachable_week_is_an_anchor_and_the_other_side_stays_a_span(html: str) -> None:
+    nav = nav_of(html)
+
+    assert '<a href="../2026-W33/newsletter.html" rel="prev">&larr; Semana 33</a>' in nav
+    assert nav.count('<span class="spent" aria-disabled="true">') == 1
+    assert "Semana siguiente &rarr;" in nav
 
 
 # --------------------------------------------------------------------------- #

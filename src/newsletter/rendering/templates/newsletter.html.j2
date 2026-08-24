@@ -8,13 +8,18 @@
   Rules this template obeys:
   - autoescape is ON; no `| safe` anywhere, because headlines and summaries
     originate in scraped content;
-  - every URL comes from `item.source_url`, which was validated at ingestion;
+  - every outbound URL comes from `item.source_url`, which was validated at
+    ingestion; the only other links are the two paging arrows, which are built in
+    renderer.py from an issue label the label pattern already accepted and are
+    relative on purpose, so the same file pages correctly on disk and under the
+    server;
   - no JavaScript, no external requests, no embedded webfont: the file is
     readable offline, forever, and prints without a network. "Source Serif 4"
     leads the stack so the page renders as designed where the family is
     installed, and falls back to a system serif everywhere else.
 
-  Layout, after the artboard: a centred broadsheet masthead over an issue strip,
+  Layout, after the artboard: a centred broadsheet masthead over an issue strip
+  and the paging rail that lets a reader walk back through the weeks,
   the executive brief set in newspaper columns, then the lead story running
   around a filled rail that carries the first section, the remaining sections as
   a wrapping story grid, and the colophon. The reference design is photo-led;
@@ -122,6 +127,26 @@
   /* The call to action a reader sees without scrolling: it rides the issue
      strip, in the accent the design gives to every outbound link. */
   .submit-button { font-weight: 700; color: var(--color-accent-700); white-space: nowrap; }
+
+  /* The paging rail, under the issue strip and inside the same masthead rules:
+     one step back on the left, one step forward on the right, in the strip's own
+     voice. A week nobody generated is set in the muted neutral and is a <span>,
+     never an anchor — an arrow that goes nowhere is worse than one visibly
+     spent. */
+  .issue-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    padding: 6px 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .issue-nav a { color: var(--color-accent-700); white-space: nowrap; }
+  .issue-nav .spent { color: var(--color-neutral-400); white-space: nowrap; cursor: default; }
 
   /* ---------- executive brief ---------- */
   .brief {
@@ -425,6 +450,8 @@
   }
 
   @media print {
+    /* Paging is a screen affordance; on paper it is an arrow nobody can follow. */
+    .issue-nav { display: none; }
     body { background: #fff; padding: 0; font-size: 10.5pt; }
     .edition { max-width: none; }
     .sidebar { float: right; width: 300px; margin: 0 0 var(--space-6) var(--space-6); }
@@ -462,6 +489,19 @@
         {% endif %}
       </span>
     </div>
+    <div class="rule-hair"></div>
+    <nav class="issue-nav" aria-label="Navegación entre ediciones">
+      {% if previous_issue %}
+      <a href="{{ previous_issue.href }}" rel="prev">&larr; {{ previous_issue.text }}</a>
+      {% else %}
+      <span class="spent" aria-disabled="true">&larr; Semana anterior</span>
+      {% endif %}
+      {% if next_issue %}
+      <a href="{{ next_issue.href }}" rel="next">{{ next_issue.text }} &rarr;</a>
+      {% else %}
+      <span class="spent" aria-disabled="true">Semana siguiente &rarr;</span>
+      {% endif %}
+    </nav>
     <div class="rule-mid"></div>
   </header>
 

@@ -1712,3 +1712,55 @@ strip, which spells `2026-W34` as `Semana 34 · 2026` and prints any other label
 label still appears in the colophon. The artboard defines no breakpoints, so the columns and the
 card wrap collapse on their own; the floated rail keeps its existing `min-width: 46rem` guard and
 gained a clearfix the artboard omits, without which a tall rail overlaps the submit banner.
+
+---
+
+## 2026-08-24 · ADR-0045 · The reader pages between weeks from the newspaper itself
+
+**Decision.** The masthead carries a paging rail: `← Semana 33` on the left, `Semana 35 →` on
+the right, under the issue strip and inside the same masthead rules. Both arrows are rendered
+from the list of editions the **database** says were generated. An arrow with nothing on that
+side is a `<span class="spent" aria-disabled="true">`, never an `<a>`.
+
+**The href is relative, and that is the whole design.** Every arrow points at
+`../<issue label>/newsletter.html`. That one string is correct in both places the edition is
+read: on disk it resolves to the sibling issue directory under `output/`, and when the server
+answers `/` with that same file the browser resolves it to `/<issue label>/newsletter.html`.
+An absolute link would have to guess a host the edition does not know and would rot the moment
+the file was copied anywhere.
+
+**So the server grew its second edition route**, `GET /<issue label>/newsletter.html`. It is
+the first route that takes a path fragment from the request, so it reuses the existing defence
+rather than inventing one: the label goes through the same `ISSUE_LABEL_PATTERN` — which now
+lives in `models.py`, because two copies of a security pattern is one copy too many — and is
+joined to the **constant** `EDITION_FILENAME`. The request contributes a directory name and
+nothing else. `output/<issue>/` also holds `run_manifest.json` and `selected_articles.json`,
+which carry scores, withheld stories and source internals; they are unreachable structurally,
+not by a filter, because no request can name a file at all. The resolved path is still checked
+with `is_relative_to` against the output directory, since the pattern cannot see through a
+symlinked edition folder. Anything the pattern refuses, and any week nobody printed, is the
+same 404 that echoes no path but the form's.
+
+**Which weeks are navigable comes from `Storage`, never from the filesystem.** The new
+`generated_issues()` returns one `IssueRef` per published label, and is implemented for both
+SQLite and Postgres exactly as `latest_issue_label()` was. Scanning `output/` would have
+offered the reader `sample-edition` and `fixture-edition`, which no run ever generated.
+
+**Ordering is by the week the issue covers, not by when it was generated**, and it is done in
+Python rather than trusted from the backend. A week re-run late is still that week; a reader
+paging back expects the previous *week*, not the previous run. Sorting in `issue_neighbours`
+is what keeps AC9 true across two databases that disagree about how ISO timestamps compare.
+The edition being printed is folded into the list whether or not the run has saved it yet —
+on a first run the artifacts are written before the edition row — and its own `period_start`
+is what places it.
+
+**The newest edition's forward arrow is spent, and stays spent.** An edition is rendered once;
+printing next week does not reach back and rewrite last week's file. Paging backwards, which
+is what an archive is for, always works.
+
+**Consequences.** `expected_newsletter.json` and `expected_newsletter.md` are byte-identical:
+this is chrome, not content. The golden HTML gained the rail in the state every freshly printed
+edition is in — one week behind it, none ahead — so both the link and the spent arrow are in
+the committed artifact. The edition still has zero external references (ADR-0044): a relative
+href fetches nothing. The rail is hidden in print, where an arrow nobody can follow is noise.
+

@@ -69,7 +69,7 @@ from newsletter.ranking.selection import (
     select,
     submitted_detail,
 )
-from newsletter.rendering.renderer import RenderError, write_edition
+from newsletter.rendering.renderer import RenderError, issue_neighbours, write_edition
 
 logger = get_logger("pipeline")
 
@@ -662,6 +662,13 @@ def run_pipeline(
 
     # -- validate and render ------------------------------------------------ #
     allowed = {ranked_article.article.canonical_url for ranked_article in selection.selected}
+    # Which weeks the reader may page to: what the database says was published,
+    # never what the output directory happens to hold -- that also carries the
+    # sample and fixture editions, which no run generated. The edition being
+    # written is not saved yet, so `issue_neighbours` folds it in itself.
+    previous_issue, next_issue = issue_neighbours(
+        edition, database.generated_issues() if database is not None else []
+    )
     try:
         outputs = write_edition(
             edition,
@@ -670,6 +677,8 @@ def run_pipeline(
             manifest=manifest,
             tagline=config.newsletter.tagline,
             submit_url=config.submissions.form_url,
+            previous_issue=previous_issue,
+            next_issue=next_issue,
             allowed_urls=allowed,
         )
     except RenderError as exc:

@@ -704,6 +704,28 @@ def test_a_story_an_earlier_edition_printed_is_not_reprinted(
     assert "not reprinted: already published in 2026-W34" in console
 
 
+def test_the_new_edition_pages_back_to_the_week_before_it(
+    tmp_path: Path, http: FakeHttpClient
+) -> None:
+    """The masthead arrows, end to end: which weeks exist comes from the database.
+
+    The second week links back to the first. The first cannot link forward -- it
+    was printed before the second existed -- so its forward arrow stays spent,
+    which is the normal state of the newest edition.
+    """
+    with Database(tmp_path / "news.sqlite") as database:
+        run_fixture_pipeline(tmp_path / "one", http, database=database)
+        run_fixture_pipeline(tmp_path / "two", http, database=database, window=NEXT_WINDOW)
+
+    first = (tmp_path / "one" / "output" / "2026-W34" / "newsletter.html").read_text("utf-8")
+    second = (tmp_path / "two" / "output" / "2026-W35" / "newsletter.html").read_text("utf-8")
+
+    assert '<a href="../2026-W34/newsletter.html" rel="prev">&larr; Semana 34</a>' in second
+    assert "&larr; Semana anterior" in first  # nothing before it was ever printed
+    assert first.count('aria-disabled="true"') == 2
+    assert second.count('aria-disabled="true"') == 1
+
+
 def test_re_running_the_same_week_reproduces_its_edition_from_cache(
     tmp_path: Path, http: FakeHttpClient
 ) -> None:

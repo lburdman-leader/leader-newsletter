@@ -320,6 +320,31 @@ def test_the_latest_issue_is_the_one_generated_last(db: Database) -> None:
     assert db.latest_issue_label() == "2026-W34"
 
 
+def test_the_generated_issues_are_the_published_weeks_oldest_first(db: Database) -> None:
+    """What the paging arrows may point at: published weeks, one entry per label."""
+    assert db.generated_issues() == []
+
+    newest = make_edition()
+    older = newest.model_copy(
+        update={
+            "edition_id": "2026-W33",
+            "issue_label": "2026-W33",
+            "period_start": newest.period_start - timedelta(days=7),
+            "period_end": newest.period_start,
+        }
+    )
+    db.save_edition(newest)
+    db.save_edition(older)
+    # The same week re-run under a new edition id is still one week.
+    db.save_edition(newest.model_copy(update={"edition_id": "2026-W34-rerun"}))
+
+    issues = db.generated_issues()
+
+    assert [issue.issue_label for issue in issues] == ["2026-W33", "2026-W34"]
+    assert issues[0].period_start == older.period_start
+    assert all(issue.period_start.tzinfo is not None for issue in issues)
+
+
 def test_every_published_story_can_be_traced_to_its_source(db: Database) -> None:
     """AC3: edition -> item -> article -> source, by join."""
     db.upsert_source(make_source(), now=NOW)
