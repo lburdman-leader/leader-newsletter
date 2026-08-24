@@ -6,10 +6,26 @@ then port the change into the template — the template is what ships.
 
 | File | Artboard |
 |------|----------|
-| `Main.dc.html` | the edition at desktop width |
-| `Mobile.dc.html` | the same edition on a phone |
-| `Components.dc.html` | every piece, labelled with the field it renders |
-| `canvas.json` | artboard layout, notes, launch view |
+| `LeaderIntelligenceSemanal.dc.html` | **current** — the "Broadsheet" edition, one artboard at desktop width |
+| `LeaderIntelligenceSemanal.css` | the Broadsheet tokens and component classes, as exported |
+| `Main.dc.html` | superseded — the previous edition at desktop width |
+| `Mobile.dc.html` | superseded — the previous edition on a phone |
+| `Components.dc.html` | superseded — every piece, labelled with the field it renders |
+| `canvas.json` | artboard layout, notes, launch view (describes the superseded canvas) |
+
+## Where the current design came from
+
+`LeaderIntelligenceSemanal.*` is the owner's Broadsheet canvas, exported from
+Claude Design and unpacked here verbatim so the specification lives in the
+repository rather than behind a link. Two things in the export are deliberately
+**not** ported into the shipped template:
+
+- the `@font-face` blocks and their ~1.5 MB of woff2 payload — the template
+  names `"Source Serif 4"` first and falls back to a system serif, because an
+  edition is emailed and archived;
+- the CMYK / halftone print treatments (`.cmyk`, `.cmyk-head`, `.halftone`),
+  which need SVG filter defs and the `print-plates.js` driver. The edition ships
+  no JavaScript.
 
 Re-seed and republish after an edit (the seeded `.html` is generated and ignored):
 

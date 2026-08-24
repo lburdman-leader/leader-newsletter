@@ -1656,3 +1656,59 @@ content, and in making content with AI" and to write for someone who "makes chil
 video for a living". The analyzer will now admit state-of-AI stories that the editor is
 still briefed to frame through the beat. That is a follow-up prompt version, tracked in
 `docs/implementation-status.md`, not a silent fix here.
+
+---
+
+## 2026-08-24 · ADR-0044 · The edition is drawn on the Broadsheet design system
+
+**Decision.** The rendered newspaper follows the owner's Claude Design canvas, a system
+called Broadsheet: Source Serif 4 throughout, a warm paper ground (`#f3f2f2`) under near-black
+text (`#201e1d`), a cyan accent (`#0088b0`) with a magenta secondary (`#d6006c`) carrying the
+numerals and the pull-quote rule, and a centred broadsheet lockup with heavy rules. The
+executive brief becomes three columns with a column rule; the lead gains a drop cap and a
+two-column summary; sections are announced by a hairline / label / count / hairline row; story
+cards lose their fill and border and become justified two-column type on a hairline meta line.
+
+**Reason.** The paper is the product. It had a serviceable house style that nobody designed;
+now it has one that someone did.
+
+**The design lives in the repository, not behind a link.** `design/LeaderIntelligenceSemanal.dc.html`
+and its stylesheet are committed verbatim beside the earlier canvas sources. The share URL
+returns 403 to anyone who is not its owner, which is exactly why a visual specification cannot
+be a link: the first attempt to read it failed, and a design nobody but one person can open is
+not a specification. The export arrived as a 1.7 MB bundle — a JSON map of gzipped assets plus
+the document as one escaped line — so it was unpacked before it could be used.
+
+**Three things from the export were deliberately not ported.**
+
+*The fonts.* The bundle carries roughly 1.5 MB of woff2. Inlining that into every edition would
+multiply the size of an artifact that gets emailed and archived, and linking it would break the
+constraint below. The stack is `"Source Serif 4"` first with a real serif fallback, so it renders
+as drawn where the family is installed and degrades gracefully everywhere else.
+
+*The CMYK plate and halftone treatments.* They need in-document SVG `feColorMatrix` filters and a
+JavaScript driver. The edition ships no JavaScript and will not start.
+
+*`color-mix()`.* Resolved to the design's own concrete ramp steps, so an old mail client or an
+archived copy does not fall back to transparent.
+
+**The constraint that shaped every one of those.** The edition has zero external references — no
+`<link>`, no `src=`, no `url()`, no `@import`, no `@font-face` — and that is load-bearing twice
+over: it is what lets the file be opened offline years from now, and it is what lets the server
+answer with `default-src 'none'`. A single web-font request would break both at once. The
+rendered golden is grepped for all of them and the count is zero.
+
+**Light only, on purpose.** The export defines no dark palette and no `prefers-color-scheme`
+block; its only media query is `prefers-reduced-motion`. Inventing a dark theme would be
+designing, not implementing. The full palette is defined on bare `:root` regardless, so nothing
+depends on a media query resolving.
+
+**Consequences.** `expected_newsletter.json` and `expected_newsletter.md` are byte-identical:
+this changes how the paper looks and never what it says, and the JSON golden is the tripwire that
+proves it. Every functional element survives — the masthead submit button with its
+`rel="noopener noreferrer"`, the colophon banner, every headline as a direct anchor to its source,
+the per-story original link, and `key_facts` on the lead alone. The one new branch is the issue
+strip, which spells `2026-W34` as `Semana 34 · 2026` and prints any other label verbatim; the raw
+label still appears in the colophon. The artboard defines no breakpoints, so the columns and the
+card wrap collapse on their own; the floated rail keeps its existing `min-width: 46rem` guard and
+gained a clearfix the artboard omits, without which a tall rail overlaps the submit banner.

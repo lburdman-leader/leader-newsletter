@@ -310,6 +310,18 @@ def test_html_has_a_masthead_and_issue_metadata(html: str) -> None:
     # covers the 17th. Printing "18 Aug" would claim a day it does not include.
     assert "11 ago 2026" in html and "17 ago 2026" in html
     assert "18 ago 2026" not in html.split("</header>")[0]
+    # The issue strip spells the ISO week out for the reader; the raw label is
+    # still printed verbatim in the colophon, above.
+    assert "Semana 34 &middot; 2026" in html.split("</header>")[0]
+
+
+def test_an_unexpected_issue_label_is_printed_verbatim(edition) -> None:
+    """The masthead spells out ``YYYY-Www`` only; anything else passes through."""
+    html = render_html(edition.model_copy(update={"issue_label": "especial-verano"}))
+    masthead = html.split("</header>")[0]
+
+    assert "especial-verano" in masthead
+    assert "Semana" not in masthead
 
 
 def test_html_has_an_executive_brief_and_a_lead_story(html: str) -> None:

@@ -6,323 +6,406 @@
 <title>AI &amp; Digital Intelligence Weekly — 2026-W34</title>
 <meta name="description" content="Resumen semanal de inteligencia para 11 ago 2026 al 17 ago 2026.">
 <style>
+  /* ---------- Broadsheet tokens ---------- */
   :root {
-    --accent: #1a44d6;
-    --accent-ink: #ffffff;
-    --ink: #14161d;
-    --muted: #5b606c;
-    --paper: #f3f1ec;
-    --card: #ffffff;
-    --rule: #d5d1c8;
-    --sans: "Helvetica Neue", Helvetica, "Arial Nova", Arial, "Liberation Sans", sans-serif;
+    --color-bg: #f3f2f2;
+    --color-text: #201e1d;
+    --color-accent: #0088b0;
+    --color-accent-2: #d6006c;
+
+    --color-neutral-300: #d7d3d3;
+    --color-neutral-400: #bab6b6;
+    --color-neutral-700: #605d5d;
+    --color-neutral-800: #444141;
+
+    --color-accent-100: #e9f8ff;
+    --color-accent-300: #99e0ff;
+    --color-accent-700: #006786;
+    --color-accent-900: #0a303e;
+
+    --space-1: 5px;
+    --space-2: 10px;
+    --space-3: 15px;
+    --space-4: 20px;
+    --space-6: 30px;
+    --space-8: 40px;
+
+    /* The design sets both roles to "Source Serif 4". The woff2 files are not
+       embedded — 1.5 MB in an artifact that gets emailed and archived — so the
+       stack degrades to whatever serif the reader already has. */
+    --font-body: "Source Serif 4", Georgia, "Times New Roman", "Liberation Serif", serif;
   }
 
   * { box-sizing: border-box; }
 
   body {
     margin: 0;
-    padding: 1.75rem 1.25rem 3rem;
-    background: var(--paper);
-    color: var(--ink);
-    font-family: var(--sans);
+    padding: var(--space-6) var(--space-3) var(--space-8);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
     font-size: 15px;
-    line-height: 1.5;
+    line-height: 1.55;
     -webkit-text-size-adjust: 100%;
   }
 
-  .edition { max-width: 65rem; margin: 0 auto; }
+  .edition { max-width: 1180px; margin: 0 auto; }
 
   a { color: inherit; text-decoration: none; }
-  a:hover, a:focus { text-decoration: underline; text-underline-offset: 3px; }
+  a:hover, a:focus { color: var(--color-accent-700); text-decoration: underline; text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
   /* ---------- masthead ---------- */
-  .masthead-top,
-  .masthead-foot {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 0.25rem 1.5rem;
-    font-size: 0.7rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .masthead-top { padding-bottom: 0.625rem; }
-  .masthead-foot { padding-top: 0.625rem; letter-spacing: 0.04em; align-items: center; }
+  .rule-heavy { height: 5px; background: var(--color-text); }
+  .rule-hair { height: 1px; background: var(--color-text); }
+  .rule-mid { height: 3px; background: var(--color-text); }
+  .rule-heavy + .rule-hair { margin-top: 3px; }
 
-  /* The call to action a reader sees without scrolling: a button on the
-     masthead strip, in the accent the issue block already uses. */
-  .submit-button {
-    padding: 0.4rem 0.85rem;
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    white-space: nowrap;
-  }
-  .submit-button:hover, .submit-button:focus { background: var(--ink); text-decoration: none; }
-
-  .masthead-lockup {
-    display: flex;
-    align-items: stretch;
-    gap: 1.25rem;
-    border-top: 2px solid var(--ink);
-    border-bottom: 2px solid var(--ink);
-    padding: 1.125rem 0;
-  }
-
-  .issue-block {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    flex-shrink: 0;
-    min-width: 6rem;
-    padding: 0.625rem 0.75rem;
-    background: var(--accent);
-    color: var(--accent-ink);
-  }
-  .issue-week { font-size: clamp(1.5rem, 5vw, 2.5rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
-  .issue-year { font-size: 0.65rem; letter-spacing: 0.22em; margin-top: 0.25rem; }
-
-  .wordmark {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-width: 0;
-  }
-  .wordmark h1 {
+  .masthead h1 {
     margin: 0;
-    font-size: clamp(1.6rem, 4.6vw, 3.1rem);
-    font-weight: 800;
+    padding: var(--space-4) 0 var(--space-2);
+    text-align: center;
+    font-size: clamp(34px, 8.4vw, 92px);
+    font-weight: 700;
+    line-height: 0.9;
     letter-spacing: -0.035em;
-    line-height: 0.96;
     text-transform: uppercase;
     text-wrap: balance;
   }
-  .wordmark-accent { color: var(--accent); }
-
-  /* ---------- section headings ---------- */
-  .rule-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin: 2.25rem 0 1rem;
-  }
-  .rule-row .fill { flex-grow: 1; height: 2px; background: var(--ink); }
-  .rule-row .count {
-    font-size: 0.7rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  .section-label {
+  .masthead-tagline {
     margin: 0;
-    font-size: 1.25rem;
-    font-weight: 800;
-    letter-spacing: -0.01em;
-  }
-  .section-label.eyebrow {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--accent);
+    padding-bottom: var(--space-3);
+    text-align: center;
+    font-size: 15px;
+    font-style: italic;
+    color: var(--color-neutral-800);
   }
 
-  /* ---------- executive brief ---------- */
-  .brief { display: grid; grid-template-columns: 1fr; gap: 1.125rem; }
-  .brief-card {
-    display: flex;
-    gap: 0.875rem;
-    background: var(--card);
-    border: 1px solid var(--rule);
-    padding: 1.125rem;
-  }
-  .brief-card .n {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 2.375rem;
-    height: 2.375rem;
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-size: 0.95rem;
-    font-weight: 800;
-  }
-  .brief-card p { margin: 0; font-size: 0.875rem; line-height: 1.45; }
-
-  /* ---------- lead + sidebar ---------- */
-  .lead-row { display: grid; grid-template-columns: 1fr; gap: 1.875rem; margin-top: 2.125rem; align-items: start; }
-
-  .lead-band {
+  .issue-strip {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem 1rem;
-    background: var(--accent);
-    color: var(--accent-ink);
-    padding: 0.75rem 1.125rem;
+    gap: var(--space-2) var(--space-4);
+    padding: 6px 0;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-neutral-700);
   }
-  .lead-band .kicker { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; }
-  .lead-band .category { font-size: 0.68rem; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.85; }
-  .lead-band .score { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+  .issue-label { font-weight: 700; color: var(--color-text); }
+  .issue-strip .count { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 
-  .lead h2 {
-    margin: 1.25rem 0 0;
-    font-size: clamp(1.75rem, 4.2vw, 2.5rem);
-    font-weight: 800;
-    letter-spacing: -0.03em;
-    line-height: 1.06;
+  /* The call to action a reader sees without scrolling: it rides the issue
+     strip, in the accent the design gives to every outbound link. */
+  .submit-button { font-weight: 700; color: var(--color-accent-700); white-space: nowrap; }
+
+  /* ---------- executive brief ---------- */
+  .brief {
+    margin-top: var(--space-6);
+    border-top: 1px solid var(--color-text);
+    border-bottom: 1px solid var(--color-text);
+    padding: var(--space-3) 0 var(--space-4);
+  }
+  .brief-label {
+    margin: 0 0 var(--space-3);
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--color-neutral-800);
+  }
+  .brief-columns {
+    columns: 3 15rem;
+    column-gap: var(--space-6);
+    column-rule: 1px solid var(--color-neutral-300);
+  }
+  .brief-columns p {
+    margin: 0 0 var(--space-3);
+    font-size: 13.5px;
+    line-height: 1.5;
+    text-wrap: pretty;
+    break-inside: avoid;
+  }
+  .brief-columns .n {
+    margin-right: var(--space-2);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--color-accent-2);
+  }
+
+  /* ---------- lead + rail ---------- */
+  .body-matter { padding-top: var(--space-6); }
+  .body-matter::after { content: ""; display: block; clear: both; }
+
+  .sidebar {
+    margin: 0 0 var(--space-6);
+    background: var(--color-accent-100);
+    border-top: 4px solid var(--color-accent);
+    padding: var(--space-4);
+  }
+  .sidebar h2 {
+    margin: 0 0 var(--space-4);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--color-accent-900);
+  }
+  .sidebar .story {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    border-top: 1px solid var(--color-accent-300);
+    padding-top: var(--space-3);
+  }
+  .sidebar .story + .story { margin-top: var(--space-4); }
+  .sidebar .story h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
     text-wrap: pretty;
   }
-  .lead .summary { margin: 1rem 0 0; font-size: 1.0625rem; line-height: 1.5; }
+  .sidebar .summary { margin: 0; font-size: 13px; line-height: 1.5; color: var(--color-neutral-800); text-wrap: pretty; }
+  .sidebar .why { margin: 0; font-size: 13px; font-style: italic; line-height: 1.45; text-wrap: pretty; }
+  .sidebar .meta { margin: auto 0 0; font-size: 10.5px; }
+
+  .lead { display: flex; flex-direction: column; }
+  .lead-band {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-4);
+    border-top: 3px solid var(--color-text);
+    padding: var(--space-2) 0 var(--space-3);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-neutral-700);
+  }
+  .lead-band .kicker { font-weight: 700; color: var(--color-accent-2); }
+  .lead-band .score {
+    margin-left: auto;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+  }
+
+  .lead h2 {
+    margin: 0;
+    font-size: clamp(30px, 4.4vw, 50px);
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -0.028em;
+    text-wrap: pretty;
+  }
+  .lead .summary {
+    margin: var(--space-4) 0 0;
+    font-size: 16.5px;
+    line-height: 1.55;
+    hyphens: auto;
+    text-wrap: pretty;
+    columns: 2 18rem;
+    column-gap: var(--space-6);
+    column-rule: 1px solid var(--color-neutral-300);
+  }
+  /* The drop cap the artboard opens the lead with, taken from the text itself
+     rather than split out in markup. */
+  .lead .summary::first-letter {
+    float: left;
+    font-size: 62px;
+    line-height: 0.8;
+    font-weight: 700;
+    padding: 4px var(--space-2) 0 0;
+  }
 
   .why-lead {
-    margin: 1.25rem 0 0;
-    background: var(--accent);
-    color: var(--accent-ink);
-    padding: 1.25rem 1.375rem;
+    margin: var(--space-4) 0 0;
+    padding-left: var(--space-4);
+    border-left: 3px solid var(--color-accent-2);
+    font-size: 16px;
+    font-style: italic;
+    line-height: 1.5;
+    text-wrap: pretty;
   }
   .why-lead strong {
     display: block;
-    font-size: 0.68rem;
+    margin-bottom: 6px;
+    font-style: normal;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.2em;
     text-transform: uppercase;
-    opacity: 0.8;
-    margin-bottom: 0.375rem;
+    color: var(--color-accent-2);
   }
-  .why-lead p { margin: 0; font-size: 1.125rem; line-height: 1.42; text-wrap: pretty; }
+  .why-lead p { margin: 0; }
 
-  .facts { display: grid; grid-template-columns: 1fr; gap: 0.375rem 1.375rem; margin: 1.25rem 0 0; padding: 0; list-style: none; }
-  .facts li { display: flex; gap: 0.5625rem; font-size: 0.875rem; line-height: 1.4; }
-  .facts li::before { content: "—"; color: var(--accent); font-weight: 800; }
+  .facts {
+    margin: var(--space-6) 0 0;
+    padding: var(--space-3) 0 0;
+    border-top: 1px solid var(--color-neutral-400);
+    list-style: none;
+    columns: 2 17rem;
+    column-gap: var(--space-6);
+  }
+  .facts li {
+    font-size: 13.5px;
+    line-height: 1.4;
+    padding: 0 0 var(--space-2) var(--space-4);
+    text-indent: calc(-1 * var(--space-4));
+    break-inside: avoid;
+  }
+  .facts li::before { content: "— "; color: var(--color-accent); font-weight: 700; }
 
   /* ---------- meta line ---------- */
   .meta {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.25rem 0.875rem;
-    margin: 1.25rem 0 0;
-    padding-top: 0.75rem;
-    border-top: 1px solid var(--rule);
-    font-size: 0.65rem;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    padding-top: var(--space-4);
+    font-size: 11px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--color-neutral-700);
   }
-  .meta .source a { font-weight: 700; color: var(--ink); }
-  .read-original { margin-left: auto; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .meta .source a { font-weight: 700; color: var(--color-text); white-space: nowrap; }
+  .meta .published { white-space: nowrap; }
+  .read-original { margin-left: auto; font-weight: 700; color: var(--color-accent-700); white-space: nowrap; }
 
-  /* ---------- sidebar ---------- */
-  .sidebar { background: var(--accent); color: var(--accent-ink); padding: 1.5rem 1.375rem; }
-  .sidebar h2 {
-    margin: 0;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.35);
-    font-size: 1.25rem;
-    font-weight: 800;
-    letter-spacing: -0.01em;
+  /* ---------- section headings ---------- */
+  .section { padding-top: var(--space-6); }
+  .rule-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    border-top: 3px solid var(--color-text);
+    padding: var(--space-2) 0 var(--space-4);
   }
-  .sidebar .story { padding: 1.125rem 0; border-bottom: 1px solid rgba(255, 255, 255, 0.35); }
-  .sidebar .story:last-child { padding-bottom: 0; border-bottom: 0; }
-  .sidebar .story h3 { margin: 0 0 0.5rem; font-size: 1.0625rem; font-weight: 700; line-height: 1.22; text-wrap: pretty; }
-  .sidebar .story p { margin: 0 0 0.625rem; font-size: 0.8125rem; line-height: 1.45; opacity: 0.92; }
-  .sidebar .why { border: 0; padding: 0; color: inherit; }
-  .sidebar .why strong { color: inherit; }
-  .sidebar .meta { border-top: 0; padding-top: 0; margin-top: 0.75rem; font-size: 0.62rem; color: inherit; opacity: 0.85; }
-  .sidebar .meta .source a { color: inherit; }
-  .sidebar .read-original { color: inherit; }
+  .rule-row .fill { flex: 1 1 auto; height: 1px; background: var(--color-neutral-400); }
+  .section-label {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .rule-row .count {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-neutral-700);
+    white-space: nowrap;
+  }
 
   /* ---------- story grid ---------- */
-  .stories { display: grid; grid-template-columns: 1fr; gap: 1.625rem; }
+  .stories { display: flex; flex-wrap: wrap; gap: var(--space-6); }
   .story-card {
-    background: var(--card);
-    border: 1px solid var(--rule);
-    border-top: 3px solid var(--accent);
-    padding: 1.375rem;
+    flex: 1 1 19rem;
+    /* min() keeps a card from forcing the page wider than the phone it is read
+       on: below 17rem of room the card simply takes the room there is. */
+    min-width: min(17rem, 100%);
+    padding-bottom: var(--space-4);
   }
   .story-card h3 {
-    margin: 0 0 0.625rem;
-    font-size: 1.3125rem;
+    margin: 0 0 var(--space-2);
+    font-size: 24px;
     font-weight: 700;
-    letter-spacing: -0.015em;
-    line-height: 1.18;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
     text-wrap: pretty;
   }
-  .story-card .summary { margin: 0 0 0.75rem; font-size: 0.875rem; line-height: 1.5; }
-  .why {
-    margin: 0;
-    padding-left: 0.75rem;
-    border-left: 3px solid var(--accent);
-    font-size: 0.875rem;
-    line-height: 1.45;
-    color: var(--muted);
+  .story-card .summary {
+    margin: 0 0 var(--space-2);
+    font-size: 14.5px;
+    line-height: 1.55;
+    text-align: justify;
+    hyphens: auto;
+    text-wrap: pretty;
+    columns: 2 19rem;
+    column-gap: var(--space-6);
+    column-rule: 1px solid var(--color-neutral-300);
   }
-  .why strong { color: var(--ink); }
-  .story-card .meta { margin-top: 1rem; padding-top: 0.625rem; }
-
-  /* ---------- colophon ---------- */
-  .colophon {
-    margin-top: 2.75rem;
-    padding-top: 1rem;
-    border-top: 2px solid var(--ink);
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 0.5rem 1.5rem;
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
+  .story-card .why {
+    margin: 0 0 var(--space-2);
+    font-size: 14px;
+    font-style: italic;
+    line-height: 1.5;
+    color: var(--color-neutral-800);
+    text-wrap: pretty;
+    columns: 2 19rem;
+    column-gap: var(--space-6);
   }
-  .colophon-note { margin: 0.625rem 0 0; font-size: 0.7rem; line-height: 1.5; color: var(--muted); }
+  .why .label { font-style: normal; font-weight: 700; color: var(--color-accent-700); }
+  .story-card .meta {
+    display: block;
+    border-top: 1px solid var(--color-neutral-300);
+    padding-top: var(--space-2);
+  }
+  .story-card .meta .read-original { margin-left: 0; }
 
   /* ---------- reader call to action ---------- */
   .submit-cta {
-    margin-top: 2.75rem;
-    padding: 1.125rem 1.25rem;
-    background: var(--accent);
-    color: var(--accent-ink);
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: 0.5rem 1.5rem;
+    gap: var(--space-2) var(--space-6);
+    margin-top: var(--space-8);
+    border-top: 4px solid var(--color-text);
+    padding-top: var(--space-3);
   }
-  .submit-cta p { margin: 0; font-size: 0.95rem; font-weight: 700; line-height: 1.35; }
+  .submit-cta p { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.015em; }
   .submit-cta a {
-    color: var(--accent-ink);
-    font-size: 0.8rem;
-    letter-spacing: 0.08em;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    text-decoration: underline;
-    text-underline-offset: 0.25em;
+    color: var(--color-accent-700);
     white-space: nowrap;
   }
 
+  /* ---------- colophon ---------- */
+  .colophon {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-6);
+    margin-top: var(--space-8);
+    border-top: 1px solid var(--color-neutral-400);
+    padding-top: var(--space-3);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-neutral-700);
+  }
+  .colophon-note {
+    margin: var(--space-2) 0 0;
+    font-size: 12px;
+    font-style: italic;
+    line-height: 1.5;
+    color: var(--color-neutral-700);
+  }
+
   /* ---------- wider screens ---------- */
+  /* The artboard is drawn at desktop width and defines no breakpoints: its
+     columns collapse on their own `Nrem` minimums. Only the rail needs one —
+     a 330px float has nowhere to go on a phone. */
   @media (min-width: 46rem) {
-    body { padding: 2.75rem 2.75rem 3.5rem; }
-    .brief { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .lead-row { grid-template-columns: minmax(0, 1fr) 20rem; }
-    .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .stories { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.625rem 1.75rem; }
+    body { padding: var(--space-6) var(--space-4) var(--space-8); }
+    .sidebar { float: right; width: 330px; margin: 0 0 var(--space-6) var(--space-6); }
   }
 
   @media print {
     body { background: #fff; padding: 0; font-size: 10.5pt; }
     .edition { max-width: none; }
-    .brief { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .lead-row { grid-template-columns: minmax(0, 1fr) 18rem; }
-    .stories { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .story-card, .brief-card { break-inside: avoid; }
+    .sidebar { float: right; width: 300px; margin: 0 0 var(--space-6) var(--space-6); }
+    .story-card, .brief-columns p, .facts li { break-inside: avoid; }
   }
 </style>
 </head>
@@ -330,57 +413,53 @@
 <main class="edition">
 
 
-  <header>
-    <div class="masthead-top">
+  <header class="masthead">
+    <div class="rule-heavy"></div>
+    <div class="rule-hair"></div>
+
+    <h1>AI &amp; Digital Intelligence Weekly</h1>
+    <p class="masthead-tagline">Platform, model and monetization intelligence for the week</p>
+
+    <div class="rule-hair"></div>
+    <div class="issue-strip">
       <span>11 ago 2026 &ndash; 17 ago 2026</span>
-      <span>Resumen semanal</span>
+      <span class="issue-label">
+        Semana 34 &middot; 2026
+      </span>
+      <span class="count">Resumen semanal &middot; 4 notas
+        <a class="submit-button" href="https://intake.example/submit" target="_blank" rel="noopener noreferrer">Enviar un enlace &rarr;</a>
+      </span>
     </div>
-
-    <div class="masthead-lockup">
-      <div class="issue-block">
-        <span class="issue-week">W34</span>
-        <span class="issue-year">2026</span>
-      </div>
-      <div class="wordmark">
-        <h1>
-          AI &amp; Digital Intelligence <span class="wordmark-accent">Weekly</span>
-        </h1>
-      </div>
-    </div>
-
-    <div class="masthead-foot">
-      <span>Platform, model and monetization intelligence for the week</span>
-      <span>4 notas</span>
-      <a class="submit-button" href="https://intake.example/submit" target="_blank" rel="noopener noreferrer">Enviar un enlace &rarr;</a>
-    </div>
+    <div class="rule-mid"></div>
   </header>
 
-  <section aria-labelledby="brief-heading">
-    <div class="rule-row">
-      <h2 class="section-label eyebrow" id="brief-heading">Lo esencial de la semana</h2>
-      <span class="fill"></span>
-    </div>
-    <div class="brief">
-      <div class="brief-card">
-        <span class="n">01</span>
-        <p>Example Labs ships a reasoning model (Wire Example)</p>
-      </div>
-      <div class="brief-card">
-        <span class="n">02</span>
-        <p>Video model opens to enterprises (Reel Report)</p>
-      </div>
-      <div class="brief-card">
-        <span class="n">03</span>
-        <p>Ad rates shift for mid-size channels (Tubewatch)</p>
-      </div>
-      <div class="brief-card">
-        <span class="n">04</span>
-        <p>Second model launch of the week (Wire Example)</p>
-      </div>
+  <section class="brief" aria-labelledby="brief-heading">
+    <h2 class="brief-label" id="brief-heading">Lo esencial de la semana</h2>
+    <div class="brief-columns">
+      <p><span class="n">01</span>Example Labs ships a reasoning model (Wire Example)</p>
+      <p><span class="n">02</span>Video model opens to enterprises (Reel Report)</p>
+      <p><span class="n">03</span>Ad rates shift for mid-size channels (Tubewatch)</p>
+      <p><span class="n">04</span>Second model launch of the week (Wire Example)</p>
     </div>
   </section>
 
-  <div class="lead-row">
+  <div class="body-matter">
+
+    <aside class="sidebar" aria-labelledby="sidebar-heading">
+      <h2 id="sidebar-heading">Herramientas y modelos de IA</h2>
+      <article class="story">
+        <h3>
+          <a href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Second model launch of the week</a>
+        </h3>
+        <p class="summary">Factual summary of: Second model launch of the week.</p>
+        <p class="why"><span class="label">Por qué importa: </span>It changes what enterprise teams pay and plan for.</p>
+        <p class="meta">
+          <span class="source"><a href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Wire Example</a></span>
+          <span class="published">14 ago 2026</span>
+          <a class="read-original" href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
+        </p>
+      </article>
+    </aside>
 
     <article class="lead" aria-labelledby="lead-heading">
       <div class="lead-band">
@@ -407,70 +486,57 @@
 
       <p class="meta">
         <span class="source"><a href="https://news.example/story-1" target="_blank" rel="noopener noreferrer">Wire Example</a></span>
-        <span>17 ago 2026</span>
+        <span class="published">17 ago 2026</span>
         <a class="read-original" href="https://news.example/story-1" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
       </p>
     </article>
 
-    <aside class="sidebar" aria-labelledby="sidebar-heading">
-      <h2 id="sidebar-heading">Herramientas y modelos de IA</h2>
-      <article class="story">
-        <h3>
-          <a href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Second model launch of the week</a>
-        </h3>
-        <p class="summary">Factual summary of: Second model launch of the week.</p>
-        <p class="why"><strong>Por qué importa:</strong> It changes what enterprise teams pay and plan for.</p>
-        <p class="meta">
-          <span class="source"><a href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Wire Example</a></span>
-          <span>14 ago 2026</span>
-          <a class="read-original" href="https://news.example/story-4" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
-        </p>
-      </article>
-    </aside>
-  </div>
+    <section class="section" aria-labelledby="section-1">
+      <div class="rule-row">
+        <span class="fill"></span>
+        <h2 class="section-label" id="section-1">IA para video y creatividad</h2>
+        <span class="count">1 nota</span>
+        <span class="fill"></span>
+      </div>
+      <div class="stories">
+        <article class="story story-card">
+          <h3>
+            <a href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Video model opens to enterprises</a>
+          </h3>
+          <p class="summary">Factual summary of: Video model opens to enterprises.</p>
+          <p class="why"><span class="label">Por qué importa: </span>It changes what enterprise teams pay and plan for.</p>
+          <p class="meta">
+            <span class="source"><a href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Reel Report</a></span>
+            <span class="published">&middot; 16 ago 2026 &middot;</span>
+            <a class="read-original" href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
+          </p>
+        </article>
+      </div>
+    </section>
+    <section class="section" aria-labelledby="section-2">
+      <div class="rule-row">
+        <span class="fill"></span>
+        <h2 class="section-label" id="section-2">YouTube: monetización</h2>
+        <span class="count">1 nota</span>
+        <span class="fill"></span>
+      </div>
+      <div class="stories">
+        <article class="story story-card">
+          <h3>
+            <a href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Ad rates shift for mid-size channels</a>
+          </h3>
+          <p class="summary">Factual summary of: Ad rates shift for mid-size channels.</p>
+          <p class="why"><span class="label">Por qué importa: </span>It changes what enterprise teams pay and plan for.</p>
+          <p class="meta">
+            <span class="source"><a href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Tubewatch</a></span>
+            <span class="published">&middot; 15 ago 2026 &middot;</span>
+            <a class="read-original" href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
+          </p>
+        </article>
+      </div>
+    </section>
 
-  <section aria-labelledby="section-1">
-    <div class="rule-row">
-      <h2 class="section-label" id="section-1">IA para video y creatividad</h2>
-      <span class="fill"></span>
-      <span class="count">1 nota</span>
-    </div>
-    <div class="stories">
-      <article class="story story-card">
-        <h3>
-          <a href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Video model opens to enterprises</a>
-        </h3>
-        <p class="summary">Factual summary of: Video model opens to enterprises.</p>
-        <p class="why"><strong>Por qué importa:</strong> It changes what enterprise teams pay and plan for.</p>
-        <p class="meta">
-          <span class="source"><a href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Reel Report</a></span>
-          <span>16 ago 2026</span>
-          <a class="read-original" href="https://news.example/story-2" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
-        </p>
-      </article>
-    </div>
-  </section>
-  <section aria-labelledby="section-2">
-    <div class="rule-row">
-      <h2 class="section-label" id="section-2">YouTube: monetización</h2>
-      <span class="fill"></span>
-      <span class="count">1 nota</span>
-    </div>
-    <div class="stories">
-      <article class="story story-card">
-        <h3>
-          <a href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Ad rates shift for mid-size channels</a>
-        </h3>
-        <p class="summary">Factual summary of: Ad rates shift for mid-size channels.</p>
-        <p class="why"><strong>Por qué importa:</strong> It changes what enterprise teams pay and plan for.</p>
-        <p class="meta">
-          <span class="source"><a href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Tubewatch</a></span>
-          <span>15 ago 2026</span>
-          <a class="read-original" href="https://news.example/story-3" target="_blank" rel="noopener noreferrer">Ver la fuente &rarr;</a>
-        </p>
-      </article>
-    </div>
-  </section>
+  </div>
 
   <aside class="submit-cta">
     <p>¿Viste algo que deberíamos cubrir esta semana?</p>
