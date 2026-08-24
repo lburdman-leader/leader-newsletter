@@ -26,6 +26,7 @@ Two rules bind every implementation:
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from types import TracebackType
 from typing import Protocol, runtime_checkable
@@ -45,6 +46,22 @@ from newsletter.ranking.dedupe import PublishedKeys
 
 class PersistenceError(Exception):
     """The database could not be opened, migrated or written."""
+
+
+@dataclass(frozen=True)
+class StoredAssessment:
+    """One cached assessment together with everything needed to score it again.
+
+    The three parts are exactly the inputs of
+    :func:`~newsletter.ranking.scoring.compute_score`: the assessment supplies
+    the four ratings, the source supplies the priority, and the article says
+    which source that is. Handing them back joined is what lets an offline
+    measurement re-run the production formula instead of an approximation of it.
+    """
+
+    article: NormalizedArticle
+    record: AssessmentRecord
+    source: SourceConfig
 
 
 @runtime_checkable
@@ -109,6 +126,23 @@ class Storage(Protocol):
 
     def save_assessment(self, record: AssessmentRecord, *, article_id: str | None = None) -> None:
         """Store an assessment under its cache key."""
+        ...
+
+    def stored_assessments(self, *, prompt_version: str | None = None) -> list[StoredAssessment]:
+        """Every cached assessment joined to its article and its source.
+
+        Part of the contract rather than a read-back helper, because calibration
+        depends on it: the thresholds the edition is rationed by -- ``min_score``
+        above all -- are measured against the assessments already in the cache,
+        and a measurement that reached into one backend's tables would only ever
+        describe that backend. ``prompt_version`` narrows the join to one rubric,
+        which is the whole point when two are being compared.
+
+        An assessment whose article or whose source is no longer stored is
+        omitted, because it cannot be scored: the priority that completes the
+        formula is not there to read. Order is total -- article id, then cache
+        key -- so two runs over the same rows agree.
+        """
         ...
 
     # -- editions ----------------------------------------------------------- #

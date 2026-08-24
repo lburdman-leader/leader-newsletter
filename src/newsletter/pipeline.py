@@ -23,12 +23,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 from newsletter.config import AppConfig, NewsletterSettings
 from newsletter.context import RunContext
-from newsletter.ingestion.base import AdapterFactory, SourceAdapter, ingest_all
-from newsletter.ingestion.http import HttpClient
+from newsletter.ingestion.base import AdapterFactory, SourceAdapter, build_adapter, ingest_all
+from newsletter.ingestion.http import HttpClient, UrllibHttpClient, build_ssl_context
 from newsletter.ingestion.submissions import SubmissionAdapter
 from newsletter.intelligence.analyzer import ArticleAnalyzer
 from newsletter.intelligence.client import StructuredClient, build_openai_client
@@ -411,6 +412,11 @@ def run_pipeline(
     stamp = now or datetime.now(UTC)
     sources = config.enabled_sources
 
+    # One transport for the whole run, so the configured TLS trust applies to
+    # every fetch rather than to whichever adapter remembered to ask for it.
+    # An injected factory or client still wins: that is how tests stay offline.
+    default_http = _default_http_client(config)
+
     submission_adapter: SubmissionAdapter | None = None
     if config.submissions.enabled and database is not None:
         pending = database.pending_submissions(limit=config.submissions.max_per_run)
@@ -419,7 +425,7 @@ def run_pipeline(
             submission_adapter = SubmissionAdapter(
                 submission_source,
                 pending,
-                http=submission_http,
+                http=submission_http or default_http,
                 follow_links=config.submissions.follow_links,
                 min_text_chars=config.submissions.min_text_chars,
                 max_link_hops=config.submissions.max_link_hops,
@@ -436,6 +442,8 @@ def run_pipeline(
             database.upsert_source(source, now=stamp)
 
     # -- discover + fetch --------------------------------------------------- #
+    if adapter_factory is None and default_http is not None:
+        adapter_factory = partial(build_adapter, http=default_http)
     factory = _with_submissions(adapter_factory, submission_adapter)
     ingestion = ingest_all(
         sources,
@@ -723,14 +731,26 @@ def _rewrite_manifest(outputs: dict[str, Path], manifest: RunManifest) -> None:
         path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8", newline="\n")
 
 
+def _default_http_client(config: AppConfig) -> UrllibHttpClient | None:
+    """The run's shared transport, or None when the defaults already do.
+
+    ``build_ssl_context`` returns None unless TLS trust is actually configured,
+    and in that case an adapter left to build its own client behaves identically
+    -- so nothing is constructed, and the untouched path stays untouched.
+    """
+    context = build_ssl_context(
+        ca_bundle=config.runtime.tls.ca_bundle,
+        relax_x509_strict=config.runtime.tls.relax_x509_strict,
+    )
+    return None if context is None else UrllibHttpClient(ssl_context=context)
+
+
 def _with_submissions(
     factory: AdapterFactory | None, submission_adapter: SubmissionAdapter | None
 ) -> AdapterFactory | None:
     """Route the synthetic submission source to its adapter; everything else as usual."""
     if submission_adapter is None:
         return factory
-
-    from newsletter.ingestion.base import build_adapter
 
     inner = factory or build_adapter
 

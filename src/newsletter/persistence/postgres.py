@@ -49,7 +49,7 @@ from newsletter.models import (
     Submission,
     SubmissionStatus,
 )
-from newsletter.persistence.base import PersistenceError, Storage
+from newsletter.persistence.base import PersistenceError, Storage, StoredAssessment
 from newsletter.persistence.sqlite import SCHEMA_VERSION
 from newsletter.ranking.dedupe import PublishedKeys
 
@@ -167,8 +167,12 @@ class PostgresStorage:
     inside :meth:`connect`, so importing ``newsletter`` never requires it.
     """
 
-    def __init__(self, dsn: str) -> None:
+    def __init__(self, dsn: str, *, read_only: bool = False) -> None:
         self.dsn = dsn
+        #: The session refuses writes, and the schema is neither created nor
+        #: stamped. The server enforces it, so an offline measurement cannot
+        #: alter the database it is measuring even by accident.
+        self.read_only = read_only
         self._connection: Connection[Any] | None = None
 
     # -- lifecycle ---------------------------------------------------------- #
@@ -194,11 +198,14 @@ class PostgresStorage:
             # timestamptz comes back carrying `timezone.utc` rather than whatever
             # the server happens to be configured for.
             connection.execute("SET TIME ZONE 'UTC'")
+            if self.read_only:
+                connection.execute("SET default_transaction_read_only = on")
         except Exception as exc:  # psycopg.Error and DNS/socket failures alike
             raise PersistenceError(f"cannot open database {_safe(self.dsn)}: {exc}") from exc
 
         self._connection = connection
-        self.initialize()
+        if not self.read_only:
+            self.initialize()
         return self
 
     def initialize(self) -> None:
@@ -417,6 +424,30 @@ class PostgresStorage:
             "SELECT payload::text AS payload FROM assessments WHERE cache_key = %s", (cache_key,)
         )
         return AssessmentRecord.model_validate_json(row["payload"]) if row else None
+
+    def stored_assessments(self, *, prompt_version: str | None = None) -> list[StoredAssessment]:
+        """Assessments joined to their article and source. See :class:`Storage`."""
+        statement = (
+            "SELECT s.payload::text AS source_payload, r.payload::text AS article_payload, "
+            "       a.payload::text AS record_payload "
+            "FROM assessments a "
+            "JOIN articles r ON r.article_id = a.article_id "
+            "JOIN sources s ON s.id = r.source_id "
+        )
+        parameters: tuple[str, ...] = ()
+        if prompt_version is not None:
+            statement += "WHERE a.prompt_version = %s "
+            parameters = (prompt_version,)
+        statement += "ORDER BY a.article_id, a.cache_key"
+
+        return [
+            StoredAssessment(
+                article=NormalizedArticle.model_validate_json(row["article_payload"]),
+                record=AssessmentRecord.model_validate_json(row["record_payload"]),
+                source=SourceConfig.model_validate_json(row["source_payload"]),
+            )
+            for row in self._fetchall(statement, parameters)
+        ]
 
     # -- editions ----------------------------------------------------------- #
 

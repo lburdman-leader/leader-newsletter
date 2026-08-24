@@ -244,3 +244,32 @@ runtime:
   analysis_concurrency: 8
   # Lower, because these requests all land on one origin at a time.
   fetch_concurrency: 6
+
+  # How ingestion trusts a TLS certificate. Both settings are OFF here, and off
+  # is the standard secure context: the system trust store, RFC 5280 strict
+  # validation, hostname checking.
+  #
+  # They exist for one situation, and it is worth stating plainly so nobody
+  # reaches for them as a shortcut. On a corporate network that does TLS
+  # inspection -- a FortiGate, a Zscaler, any middlebox that terminates and
+  # re-signs HTTPS -- every certificate the engine sees is issued by the
+  # appliance's own CA. That CA is genuinely installed in the machine trust
+  # store, so the chain builds; what fails is that its certificate predates
+  # RFC 5280's Authority Key Identifier requirement, and Python 3.13 turned
+  # ssl.VERIFY_X509_STRICT on by default. The symptom is 12 of 14 sources failing
+  # with "unable to get local issuer certificate" on a network where a browser
+  # loads the same pages without complaint.
+  #
+  # NEITHER SETTING SKIPS VERIFICATION. There is no key here that turns
+  # certificate verification or hostname checking off, and the code that builds
+  # the context refuses to return one that has either disabled. relax_x509_strict
+  # waives the strict FORMATTING rules only: the chain must still build to a
+  # trusted root and the hostname must still match.
+  tls:
+    # An extra CA bundle in PEM form, trusted in addition to the system store.
+    # Empty means the system store alone. Point it at the appliance CA export
+    # when that CA is not installed machine-wide.
+    ca_bundle: ""
+    # Set to true only on such a network, and preferably per-machine rather than
+    # committed: it is a property of where the engine runs, not of the engine.
+    relax_x509_strict: false

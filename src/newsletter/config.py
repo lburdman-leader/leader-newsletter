@@ -366,6 +366,47 @@ class SubmissionSettings(ValueModel):
         )
 
 
+class TlsSettings(ValueModel):
+    """How ingestion trusts a TLS certificate.
+
+    Both fields are off by default, and that default is the standard secure
+    context: the system trust store, RFC 5280 strict validation, hostname
+    checking. They exist for a corporate network that terminates and re-signs
+    TLS, where the middlebox CA is genuinely installed on the machine but its
+    certificate omits an Authority Key Identifier -- which Python 3.13 rejects,
+    because it enables ``VERIFY_X509_STRICT`` by default.
+
+    **Nothing here can turn verification off.** There is no such field, and
+    :func:`~newsletter.ingestion.http.build_ssl_context` asserts that the context
+    it hands back still verifies certificates and still checks hostnames.
+    """
+
+    #: An extra CA bundle in PEM form, trusted *in addition to* the system store.
+    #: Empty means the system store alone.
+    ca_bundle: Path | None = None
+    #: Opt out of RFC 5280's strict certificate *formatting* rules
+    #: (``ssl.VERIFY_X509_STRICT``). The chain must still build to a trusted root
+    #: and the hostname must still match; only the format pedantry is waived.
+    relax_x509_strict: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _empty_bundle_is_unset(cls, data: Any) -> Any:
+        """``ca_bundle: ""`` in YAML means "not configured", as every override does."""
+        if isinstance(data, dict) and not str(data.get("ca_bundle") or "").strip():
+            return {key: value for key, value in data.items() if key != "ca_bundle"}
+        return data
+
+    @model_validator(mode="after")
+    def _bundle_must_exist(self) -> TlsSettings:
+        # Fail at load rather than on the first fetch: a typo in a path is a
+        # configuration error, and a run that discovers it source by source
+        # reports fourteen transport failures instead of one clear cause.
+        if self.ca_bundle is not None and not self.ca_bundle.is_file():
+            raise ValueError(f"tls.ca_bundle is not a readable file: {self.ca_bundle}")
+        return self
+
+
 class RuntimeSettings(ValueModel):
     """Paths, models and credentials. Populated from the environment."""
 
@@ -389,6 +430,8 @@ class RuntimeSettings(ValueModel):
     #: How many articles of one source may be fetched at once. Lower than the
     #: model's, because these requests all land on a single origin.
     fetch_concurrency: int = Field(default=DEFAULT_FETCH_CONCURRENCY, ge=1, le=16)
+    #: TLS trust for ingestion. Secure by default; see :class:`TlsSettings`.
+    tls: TlsSettings = TlsSettings()
     openai_api_key: SecretStr | None = None
 
     @model_validator(mode="before")

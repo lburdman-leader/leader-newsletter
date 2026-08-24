@@ -393,6 +393,45 @@ def test_environment_wins_over_yaml(config_dir: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# TLS trust
+# --------------------------------------------------------------------------- #
+
+
+def test_tls_trust_is_the_standard_secure_context_unless_it_is_configured(
+    config_dir: Path,
+) -> None:
+    """Nothing in the shipped configuration weakens certificate checking."""
+    config = load_config(config_dir, env={})
+    assert config.runtime.tls.ca_bundle is None
+    assert config.runtime.tls.relax_x509_strict is False
+
+    shipped = load_config(REAL_CONFIG_DIR, env={})
+    assert shipped.runtime.tls.ca_bundle is None
+    assert shipped.runtime.tls.relax_x509_strict is False
+
+
+def test_a_ca_bundle_path_that_does_not_exist_is_refused_at_load(config_dir: Path) -> None:
+    """One clear failure at startup beats fourteen transport failures per run."""
+    (config_dir / "newsletter.yaml").write_text(
+        MINIMAL_NEWSLETTER + '\nruntime:\n  tls:\n    ca_bundle: "no/such/ca.pem"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="ca_bundle"):
+        load_config(config_dir, env={})
+
+
+def test_an_empty_ca_bundle_means_the_system_store(config_dir: Path, tmp_path: Path) -> None:
+    """``ca_bundle: ""`` is "not configured", as an empty override is everywhere else."""
+    (config_dir / "newsletter.yaml").write_text(
+        MINIMAL_NEWSLETTER + '\nruntime:\n  tls:\n    ca_bundle: ""\n    relax_x509_strict: true\n',
+        encoding="utf-8",
+    )
+    config = load_config(config_dir, env={})
+    assert config.runtime.tls.ca_bundle is None
+    assert config.runtime.tls.relax_x509_strict is True
+
+
+# --------------------------------------------------------------------------- #
 # concurrency limits
 # --------------------------------------------------------------------------- #
 

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import gzip
 import http.client
+import ssl
+import urllib.request
 import zlib
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +15,7 @@ from newsletter.ingestion.http import (
     HttpError,
     HttpResponse,
     UrllibHttpClient,
+    build_ssl_context,
     decode_payload,
 )
 
@@ -158,3 +162,63 @@ def test_a_decompression_bomb_is_refused() -> None:
 
 def test_an_unknown_charset_falls_back_to_utf8() -> None:
     assert decode_payload("café".encode(), charset="not-a-charset") == "café"
+
+
+# --------------------------------------------------------------------------- #
+# TLS trust
+# --------------------------------------------------------------------------- #
+
+
+def test_nothing_configured_means_the_standard_context() -> None:
+    """None, not a context we assembled: the default install stays the default."""
+    assert build_ssl_context() is None
+    assert UrllibHttpClient().ssl_context is None
+
+
+def test_relaxing_strict_x509_keeps_verification_and_hostname_checking_on() -> None:
+    """The one thing that may be relaxed, and everything that may not.
+
+    The middlebox CA on a TLS-inspecting corporate network is trusted but omits
+    an Authority Key Identifier, which ``VERIFY_X509_STRICT`` rejects. Waiving
+    that is the whole fix; waiving verification would be a different program.
+    """
+    context = build_ssl_context(relax_x509_strict=True)
+
+    assert context is not None
+    assert not context.verify_flags & ssl.VERIFY_X509_STRICT
+    assert context.verify_mode is ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+
+
+def test_a_context_that_would_not_verify_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The invariant is asserted in code, not merely absent from the config schema."""
+    unsafe = ssl.create_default_context()
+    unsafe.check_hostname = False
+    unsafe.verify_mode = ssl.CERT_NONE
+    monkeypatch.setattr(ssl, "create_default_context", lambda *a, **k: unsafe)
+
+    with pytest.raises(ValueError, match="does not verify"):
+        build_ssl_context(relax_x509_strict=True)
+
+
+def test_a_ca_bundle_that_is_not_there_fails_loudly(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="CA bundle does not exist"):
+        build_ssl_context(ca_bundle=tmp_path / "corporate-ca.pem")
+
+
+def test_the_configured_context_reaches_the_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Injected exactly like ``resolver``, and actually handed to ``urlopen``."""
+    context = build_ssl_context(relax_x509_strict=True)
+    seen: dict[str, object] = {}
+
+    def fake_urlopen(request: object, **kwargs: object) -> object:
+        seen.update(kwargs)
+        raise http.client.RemoteDisconnected("far enough")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    client = UrllibHttpClient(ssl_context=context, resolver=lambda host: ["93.184.216.34"])
+
+    with pytest.raises(HttpError):
+        client.get("https://example.com/feed")
+
+    assert seen["context"] is context

@@ -23,11 +23,15 @@ from newsletter.persistence.dsn import (
 )
 
 
-def create_storage(database_url: str) -> Storage:
+def create_storage(database_url: str, *, read_only: bool = False) -> Storage:
     """Build the storage backend for ``database_url``, unconnected.
 
     The caller opens it, so failure to *reach* the database is a persistence
     error while failure to *understand* the URL is a configuration error.
+
+    ``read_only`` asks the engine itself to refuse writes and skips schema
+    creation, so a report can be run against a live database without touching
+    it. Every backend honours it; none simulates it in Python.
     """
     try:
         dsn = validate_dsn(database_url)
@@ -37,14 +41,14 @@ def create_storage(database_url: str) -> Storage:
     if is_sqlite(dsn):
         from newsletter.persistence.sqlite import Database
 
-        return Database(sqlite_path_from_dsn(dsn))
+        return Database(sqlite_path_from_dsn(dsn), read_only=read_only)
 
     if is_postgres(dsn):
         # Imported here so that the driver stays an optional extra: a default
         # install, and `import newsletter`, never need psycopg.
         from newsletter.persistence.postgres import PostgresStorage
 
-        return PostgresStorage(dsn)
+        return PostgresStorage(dsn, read_only=read_only)
 
     raise ConfigError(  # pragma: no cover - validate_dsn already closed this set
         f"no storage backend for {redact_dsn(database_url)}"

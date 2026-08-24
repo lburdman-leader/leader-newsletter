@@ -133,17 +133,20 @@ def test_edited_content_invalidates_the_cache(db: Database) -> None:
 
 
 def test_a_new_prompt_version_invalidates_cached_assessments(db: Database) -> None:
-    old_analyzer, _ = analyzer_with(db)
+    """A rubric change is a different judgment; an entry from the old one is a miss.
+
+    Only the prompt version moves here: the schema, the model and the article are
+    the ones the current analyzer uses, so nothing else can explain the miss.
+    """
+    old_analyzer, _ = analyzer_with(db, prompt_version="v2")
     old_analyzer.analyze(make_article(), make_source(), now=NOW)
 
-    # Same article, same model, new prompt: the judgment must be redone.
-    new_client, new_fake, _ = make_client(ok_response(topic_relevance=2))
-    new_analyzer = ArticleAnalyzer(new_client, cache=db, prompt_version="v1", schema_version="3")
+    new_analyzer, new_fake = analyzer_with(db, ok_response(topic_relevance=2))
     record = new_analyzer.analyze(make_article(), make_source(), now=NOW)
 
     assert len(new_fake.responses.calls) == 1
+    assert record.prompt_version == ANALYZER_PROMPT_VERSION
     assert record.assessment.topic_relevance == 2
-    assert record.schema_version == "3"
 
 
 def test_a_new_model_invalidates_cached_assessments(db: Database) -> None:

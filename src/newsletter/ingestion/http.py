@@ -15,12 +15,14 @@ import gzip
 import http.client
 import ipaddress
 import socket
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 from newsletter.models import validate_public_url
@@ -72,6 +74,63 @@ class HttpClient(Protocol):
     def get(self, url: str) -> HttpResponse: ...
 
 
+# --------------------------------------------------------------------------- #
+# TLS
+# --------------------------------------------------------------------------- #
+
+
+def build_ssl_context(
+    *,
+    ca_bundle: str | Path | None = None,
+    relax_x509_strict: bool = False,
+) -> ssl.SSLContext | None:
+    """The TLS context the transport should use, or None for the standard one.
+
+    Exists for one situation: a corporate network whose middlebox terminates and
+    re-signs TLS. Its CA is installed in the machine trust store, so the chain is
+    genuinely trusted, but the certificate predates RFC 5280's Authority Key
+    Identifier requirement -- and Python 3.13 turned :data:`ssl.VERIFY_X509_STRICT`
+    on by default, so every fetch fails with ``unable to get local issuer
+    certificate`` on a network where a browser is perfectly happy.
+
+    **This is not a way to skip verification.** Certificate verification and
+    hostname checking stay on in every configuration this function can produce;
+    there is no argument that turns either off, and the result is asserted before
+    it is returned. The only thing ``relax_x509_strict`` relaxes is the strict
+    *formatting* rules RFC 5280 puts on a certificate -- the chain must still
+    build to a trusted root and still match the host.
+
+    Returns None when nothing is configured, so the default install keeps using
+    the context ``urlopen`` builds for itself rather than one we assembled.
+    """
+    if not ca_bundle and not relax_x509_strict:
+        return None
+
+    context = ssl.create_default_context()
+
+    if ca_bundle:
+        path = Path(ca_bundle)
+        if not path.is_file():
+            raise ValueError(f"CA bundle does not exist: {path}")
+        try:
+            # Additive: `create_default_context` has already loaded the system
+            # store, so an extra bundle widens trust rather than replacing it.
+            context.load_verify_locations(cafile=str(path))
+        except (OSError, ssl.SSLError) as exc:
+            raise ValueError(f"CA bundle is not a usable PEM file: {path}: {exc}") from exc
+
+    if relax_x509_strict:
+        context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+
+    # The invariant, asserted rather than assumed: whatever the flags above did,
+    # a chain is still verified and a hostname is still matched.
+    if context.verify_mode is not ssl.CERT_REQUIRED or not context.check_hostname:
+        raise ValueError(
+            "refusing to build a TLS context that does not verify certificates and hostnames"
+        )
+    return context
+
+
 class UrllibHttpClient:
     """Standard-library HTTP client.
 
@@ -89,12 +148,17 @@ class UrllibHttpClient:
         max_bytes: int = DEFAULT_MAX_BYTES,
         block_private_hosts: bool = True,
         resolver: Resolver | None = None,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self.timeout = timeout
         self.user_agent = user_agent
         self.max_bytes = max_bytes
         self.block_private_hosts = block_private_hosts
         self.resolver = resolver or resolve_host
+        #: Injected exactly like ``resolver``: absent means the standard secure
+        #: context ``urlopen`` builds for itself, so the default install verifies
+        #: certificates against the system trust store and nothing else.
+        self.ssl_context = ssl_context
 
     def get(self, url: str) -> HttpResponse:
         try:
@@ -121,7 +185,9 @@ class UrllibHttpClient:
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(
+                request, timeout=self.timeout, context=self.ssl_context
+            ) as response:
                 final_url = response.geturl()
                 try:
                     validate_public_url(final_url)

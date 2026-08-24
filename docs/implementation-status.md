@@ -55,7 +55,10 @@ Entertainment — a Latin American children's YouTube company moving into AI pro
    (ADR-0025), a headline taken from the account name rather than the post, and a thinness
    probe that measured the page chrome instead of the article (ADR-0031).
 2. ~~Judge the prompts and bump to v2 if they need changing.~~ Done — `article_analyzer_v2`
-   and `newsletter_editor_v2` write Spanish and rate for this company (ADR-0032).
+   and `newsletter_editor_v2` write Spanish and rate for this company (ADR-0032). The
+   analyzer has since moved to `article_analyzer_v3`: the rubric judges two independent
+   claims — the beat and the state of AI — and takes the higher, so a frontier-AI story no
+   longer needs a YouTube angle to be allowed to matter (ADR-0043).
 3. ~~Judge the sources editorially and tune `priority`.~~ Done — priority is a trust tier
    and no source may fill an edition (ADR-0030); two kids/creator feeds were added and
    verified live, and `min_score` was recalibrated to the v2 distribution (ADR-0032).
@@ -190,7 +193,7 @@ src/newsletter/
     fidelity.py             entity-fidelity guard: model prose vs trusted source (ADR-0033)
     client.py               StructuredClient: no tools, store=False, bounded retries
     analyzer.py             ArticleAnalyzer: versioned prompt, cache, failure isolation
-    prompts/article_analyzer_v{1,2}.md, prompts/newsletter_editor_v{1,2}.md  (v2 live)
+    prompts/article_analyzer_v{1,2,3}.md (v3 live), newsletter_editor_v{1,2}.md (v2 live)
   pipeline.py               the state machine: one run, injectable collaborators
   ingestion/submissions.py  reader-submission gate, adapter and identity
   web/app.py                the edition at / and the form at /submit, as a WSGI callable
@@ -231,8 +234,11 @@ Two lesser findings from the same audit remain open and are editorial, not mecha
 
 - "mil 500 millones" (W34, Roblox story) is Mexican-press numeral style rather than the
   neutral Latin American Spanish the edition commits to. A neutral-numeral instruction belongs
-  in the editor prompt, which means a version bump — deliberately deferred, since the editor
-  prompt version is separate from the analyzer's and should be batched with any other v3 work.
+  in the editor prompt, which means a version bump — still deferred. It should now be batched
+  with the editor's own two-jobs update: ADR-0043 moved the analyzer to v3, but
+  `newsletter_editor_v2` (`:22`, `:35`) still briefs the editor to frame every story through
+  children's video, so the state-of-AI stories the analyzer now admits will be written up by
+  an editor that was never told they belong.
 - One `why_it_matters` overreached: the source described OpenAI monitoring its **internal**
   workloads, and the Spanish prose reads as stricter monitoring of model *usage*. The guard
   cannot catch this class — it is unsupported inference, not a corrupted string.
@@ -265,12 +271,22 @@ Pins tightened to what was exercised: `openai>=3.0,<4`, `scrapling>=0.4,<0.5` (A
 - **Source entrypoints are unverified** (ADR-0009). Stage 2 verifies each via
   `/add-source` and the `source-researcher` subagent.
 - **Permission rule syntax is unverified at runtime** — tighten on the first false prompt.
-- `min_score: 62` is calibrated against one week of v2 output. It is the single number
-  standing between "a thin edition" and "an edition padded with filler", and one week is
-  not enough evidence to defend it. Re-read it after a few editions.
-- The v2 rubric has been exercised on roughly 60 articles from 11 sources. Its behaviour on
-  a slow news week — whether it publishes three good stories or eight weak ones — is
-  unknown.
+- `min_score: 62` was calibrated against v2 output and is **unchanged under v3, on purpose**
+  (ADR-0043). v3 scores run higher than v2 scores for the same article, so the pass rate will
+  rise before anyone touches the number — and it must not be "recalibrated" to ~68 to restore
+  the old 22.5% pass rate, because coverage floors obey `min_score`
+  (`ranking/selection.py:305`) and a threshold above the own-beat mass starves the beat floor
+  and prints short with `coverage_floors_unmet`. Re-read it against two printed v3 editions,
+  not against a distribution.
+- **The v3 rubric has never run against the live model.** Its distribution is unmeasured and
+  the two-ladder `topic_relevance` has never been exercised on a real article. Watch for the
+  failure the narrowing clause exists to prevent: routine model-release coverage printing at
+  4 rather than stopping at 2.
+- All 444 cached v2 assessments are invalid under the v3 cache key (prompt version is part of
+  it), so the next run re-assesses the whole pool and costs accordingly (ADR-0043).
+- The v2 rubric had been exercised on roughly 60 articles from 11 sources. Its behaviour on
+  a slow news week — whether it publishes three good stories or eight weak ones — was never
+  measured, and v3 inherits that gap.
 - Source *editorial quality* remains a human call. The entrypoints are verified reachable
   and parseable (ADR-0025) and the two kids/creator feeds were added because the beat was
   missing, but nobody has yet judged several consecutive editions as a reader.

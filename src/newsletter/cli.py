@@ -280,6 +280,13 @@ def cmd_submit(config: AppConfig, args: argparse.Namespace) -> int:
 def cmd_serve(config: AppConfig, args: argparse.Namespace) -> int:
     """Serve the latest edition at ``/`` and the submission form it links to.
 
+    Serving does not depend on ``submissions.enabled``. Reading the newspaper and
+    proposing a link are two different things, and the server has answered ``/``
+    with the edition since long after this command was written: refusing to start
+    because intake is closed took the newspaper offline with it. Intake is closed
+    where it is decided -- ``SubmissionApp`` answers ``/submit`` with 403 -- while
+    ``/`` keeps serving.
+
     ``wsgiref`` runs it here so a local run needs no dependency; the application
     is a plain WSGI callable, so a deployment runs the same object under gunicorn
     or uvicorn without changing a line.
@@ -287,10 +294,6 @@ def cmd_serve(config: AppConfig, args: argparse.Namespace) -> int:
     from wsgiref.simple_server import make_server
 
     from newsletter.web.app import EDITION_PATH, FORM_PATH, SubmissionApp
-
-    if not config.submissions.enabled:
-        print("Submissions are disabled in config/newsletter.yaml.", file=sys.stderr)
-        return EXIT_ERROR
 
     app = SubmissionApp(config)
     try:
@@ -301,7 +304,10 @@ def cmd_serve(config: AppConfig, args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
     report(f"Latest edition on http://{args.host}:{args.port}{EDITION_PATH}")
-    report_plain(f"    form     http://{args.host}:{args.port}{FORM_PATH}")
+    if config.submissions.enabled:
+        report_plain(f"    form     http://{args.host}:{args.port}{FORM_PATH}")
+    else:
+        report_plain("    form     closed (submissions.enabled is false)")
     report_plain(f"    editions {config.runtime.output_dir}")
     report_plain(f"    database {redact_dsn(config.runtime.database_url)}")
     if args.host not in ("127.0.0.1", "localhost", "::1"):

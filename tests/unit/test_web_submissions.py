@@ -443,17 +443,29 @@ def test_a_body_that_is_not_a_form_submission_is_refused(
     assert reply.code == expected
 
 
-def test_the_form_is_closed_when_submissions_are_disabled(
-    tmp_path: Path, storage_path: Path
+def test_closing_intake_closes_the_form_and_nothing_else(
+    tmp_path: Path, storage_path: Path, output_dir: Path
 ) -> None:
+    """Reading the newspaper and proposing a link are two different things.
+
+    ``submissions.enabled: false`` means "we are not taking links this week". It
+    has never meant "stop publishing", and ``/`` has served the edition itself
+    since long after that flag was introduced.
+    """
+    publish_edition(storage_path, output_dir)
     app = SubmissionApp(
         make_config(tmp_path, enabled=False),
         storage_factory=lambda: Database(storage_path),
         check_address=False,
     )
 
+    edition = call(app, path="/")
+    assert edition.code == 200
+    assert edition.body == EDITION_HTML
+
     assert call(app).code == 403
     assert call(app, method="POST", fields={"name": "Ana", "url": LINK}).code == 403
+    assert stored(storage_path) == []
 
 
 def test_a_storage_failure_answers_generically_and_leaks_nothing(tmp_path: Path) -> None:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import urllib.parse
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -33,7 +34,7 @@ from newsletter.models import (
     Submission,
     SubmissionStatus,
 )
-from newsletter.persistence.base import PersistenceError, Storage
+from newsletter.persistence.base import PersistenceError, Storage, StoredAssessment
 
 # The identity keys a published story is remembered by are the deduplication
 # keys, so they are defined once, in ranking.dedupe, and read here. The
@@ -150,8 +151,14 @@ class Database:
             db.save_article(article)
     """
 
-    def __init__(self, path: Path | str = ":memory:") -> None:
+    def __init__(self, path: Path | str = ":memory:", *, read_only: bool = False) -> None:
         self.path = str(path)
+        #: Opened through SQLite's ``mode=ro`` URI, which refuses every write at
+        #: the engine rather than by convention. An offline measurement can then
+        #: point at the live database without creating a journal beside it or
+        #: rewriting the schema row -- the file it reports on is the file as it
+        #: was found. ``:memory:`` has nothing to protect and ignores it.
+        self.read_only = read_only and self.path != ":memory:"
         self._connection: sqlite3.Connection | None = None
 
     # -- lifecycle ---------------------------------------------------------- #
@@ -159,17 +166,25 @@ class Database:
     def connect(self) -> Database:
         if self._connection is not None:
             return self
-        if self.path != ":memory:":
+        if self.path != ":memory:" and not self.read_only:
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         try:
-            connection = sqlite3.connect(self.path)
+            if self.read_only:
+                if not Path(self.path).is_file():
+                    raise PersistenceError(f"cannot open database {self.path}: no such file")
+                connection = sqlite3.connect(_read_only_uri(self.path), uri=True)
+            else:
+                connection = sqlite3.connect(self.path)
         except sqlite3.Error as exc:  # pragma: no cover - filesystem dependent
             raise PersistenceError(f"cannot open database {self.path}: {exc}") from exc
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
+        if not self.read_only:
+            # WAL is a write; a read-only handle must not take one.
+            connection.execute("PRAGMA journal_mode = WAL")
         self._connection = connection
-        self.initialize()
+        if not self.read_only:
+            self.initialize()
         return self
 
     def initialize(self) -> None:
@@ -397,6 +412,35 @@ class Database:
             .fetchone()
         )
         return AssessmentRecord.model_validate_json(row["payload"]) if row else None
+
+    def stored_assessments(self, *, prompt_version: str | None = None) -> list[StoredAssessment]:
+        """Assessments joined to their article and source. See :class:`Storage`.
+
+        The join is inner on purpose: a row without an article or without a
+        source cannot be scored, so it is left out rather than guessed at.
+        """
+        statement = (
+            "SELECT s.payload AS source_payload, r.payload AS article_payload, "
+            "       a.payload AS record_payload "
+            "FROM assessments a "
+            "JOIN articles r ON r.article_id = a.article_id "
+            "JOIN sources s ON s.id = r.source_id "
+        )
+        parameters: tuple[str, ...] = ()
+        if prompt_version is not None:
+            statement += "WHERE a.prompt_version = ? "
+            parameters = (prompt_version,)
+        statement += "ORDER BY a.article_id, a.cache_key"
+
+        rows = self._require_connection().execute(statement, parameters).fetchall()
+        return [
+            StoredAssessment(
+                article=NormalizedArticle.model_validate_json(row["article_payload"]),
+                record=AssessmentRecord.model_validate_json(row["record_payload"]),
+                source=SourceConfig.model_validate_json(row["source_payload"]),
+            )
+            for row in rows
+        ]
 
     # -- editions ----------------------------------------------------------- #
 
@@ -643,6 +687,19 @@ def _stamp(now: datetime | None) -> str:
     from datetime import UTC
 
     return (now or datetime.now(UTC)).isoformat()
+
+
+def _read_only_uri(path: str) -> str:
+    """``file:`` URI for ``mode=ro``, with the characters a URI reserves escaped.
+
+    A Windows path is the reason this is not string concatenation: it starts with
+    a drive letter and uses backslashes, and ``C:\\Users\\...`` inside a URI is
+    read as a scheme unless the whole path is quoted and rooted with a slash.
+    """
+    absolute = Path(path).resolve().as_posix()
+    if not absolute.startswith("/"):  # a Windows drive-letter path
+        absolute = "/" + absolute
+    return f"file:{urllib.parse.quote(absolute)}?mode=ro"
 
 
 if TYPE_CHECKING:  # pragma: no cover - a type-checker assertion, not runtime code

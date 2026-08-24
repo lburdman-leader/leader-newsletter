@@ -1571,3 +1571,88 @@ change it: no article published 3-9 August was ever ingested, and recall can onl
 what was stored. That is the argument for recall being always-on from now on rather than
 an argument against it.
 
+---
+
+## 2026-08-24 · ADR-0043 · The rubric judges two claims and takes the higher; the beat stops being the only way in
+
+**Decision.** `article_analyzer_v3.md` replaces v2 as the analyzer prompt
+(`ANALYZER_PROMPT_VERSION = "v3"`). The reader brief now names **two** jobs — the team's own
+beat, and the state of AI itself — and `topic_relevance` is judged as two independent
+claims, **Claim A** (children's content, YouTube, making content with AI) and **Claim B**
+(what AI can do, what it costs, who can get hold of it, what the law will allow), scored on
+one shared ladder with the **higher** of the two reported. Never added, never averaged.
+`business_impact` admits strategic consequence beside operational and drops the "this
+quarter" demand; `actionability` widens past a fortnight; `novelty` and `confidence` get
+sharper anchors; `why_it_matters` stops demanding a beat angle; a four-example Calibration
+section is new. Nothing else in the code changed: no schema change, no Pydantic change, no
+`scoring.py` edit, no golden regeneration.
+
+**Reason.** Two lines of v2 were the defect, and both are deleted rather than softened:
+
+- *"Judge every article by what it means for **that** company"* (v2 `:31`) — a single
+  mandate that made a media angle the only route to relevance.
+- *"An article can be technically fascinating and still matter very little to them. Rate it
+  for this newsletter, not for a research audience."* (v2 `:41-42`) — read by the model as
+  an instruction to discount frontier AI work on principle.
+
+The consequence was measurable. Across 444 cached v2 assessments the score distribution is
+median 56, p90 68, max 82, with only 22.5% clearing `min_score: 62`; the AI-lab cluster
+tops out at 64 and then cliffs to 59. No Anthropic, Kimi or Grok story has ever printed.
+That is not the rubric being strict, it is the rubric being unable to express the second
+half of what the owner reads the paper for: *"it should be news for kids youtube content
+but also for ai innovations and new news."*
+
+Widening without narrowing would have been worse than the defect. So the same edit that
+opens the AI door installs the gate: **most AI articles stop at 2**, and 4 on Claim B
+requires *new capability, not a new release* — a model somewhat better at the same things
+is a 2; a model doing what the previous generation could not, or at a price that changes
+who can afford it, is a 4. `business_impact` 1 now explicitly catches the consequence that
+is "equally true of every company on earth", which is what the generic
+AI-transforms-business essay scores.
+
+**A sixth numeric dimension was rejected.** An "AI significance" dimension would be
+collinear with `novelty`, which is already audience-neutral and already rates frontier
+releases 4-5; and the score ceiling is 100, so paying for a sixth dimension means taking
+weight off `topic_relevance` — cutting the beat's voice to make room for a second beat
+voice. Two ladders inside one dimension cost no weight and no wire-format change.
+
+**`ASSESSMENT_SCHEMA_VERSION` deliberately does not move.** The output shape is identical.
+Prompt version and schema version are independent components of the cache key
+(`content_hash:prompt_version:schema_version:model`), so bumping the prompt alone is
+sufficient and correct. This is the cheap path on purpose.
+
+**Alternatives.** A sixth dimension (above); a category-conditional rubric branch (the
+model would route stories to the branch that scores higher, which is the collinearity
+problem with extra steps); leaving v2 and lowering `min_score` (prints more of everything,
+including the filler v2 already over-rates); a second analyzer pass for AI stories (doubles
+cost to answer a question one rubric can hold).
+
+**Consequences.**
+
+**All 444 cached v2 assessments are invalidated.** The next run re-assesses the whole pool
+at v3 prices. That is the intended behaviour of the cache key, not an accident, and the v2
+rows are retained rather than deleted — both generations coexist under different keys.
+
+**`min_score` is deliberately NOT changed in this ADR, and that is a decision, not an
+oversight.** The naive recalibration — pick the threshold that reproduces the old 22.5%
+pass rate against the new, higher distribution — lands near 68. Do not do it. Coverage
+floors obey `min_score` (`ranking/selection.py:305`): a floor may not seat a story below
+the threshold. Setting the threshold above the mass of own-beat stories therefore starves
+the very floor that guarantees the beat appears, and the run publishes short with
+`coverage_floors_unmet` — an edition that is more AI-heavy *and* thinner, which is the
+opposite of the request. The number gets re-read after two live editions, against what was
+actually printed, and it will likely move up somewhat — but from evidence, not from
+arithmetic on a distribution nobody has read yet.
+
+**v2 scores and v3 scores are not on the same scale.** A v3 score is higher than a v2 score
+for the same article, and that is a change of instrument, not the news getting better.
+Anyone plotting `final_score` across the version boundary — or comparing this week's median
+to a stored one — must split the series at v3. `prompt_version` is persisted with every
+assessment and every run precisely so the boundary is visible.
+
+**The editor prompt still carries the single mandate.** `newsletter_editor_v2.md` (`:22`,
+`:35`) still tells the editor the paper is about "this week in YouTube, in children's
+content, and in making content with AI" and to write for someone who "makes children's
+video for a living". The analyzer will now admit state-of-AI stories that the editor is
+still briefed to frame through the beat. That is a follow-up prompt version, tracked in
+`docs/implementation-status.md`, not a silent fix here.
