@@ -825,11 +825,9 @@ Target abstraction:
 
 ```python
 class SourceAdapter(Protocol):
-    def discover(self, window: DateWindow) -> list[DiscoveredArticle]:
-        ...
+    def discover(self, window: DateWindow) -> list[DiscoveredArticle]: ...
 
-    def fetch(self, article: DiscoveredArticle) -> RawArticle:
-        ...
+    def fetch(self, article: DiscoveredArticle) -> RawArticle: ...
 ```
 
 Normalize at the ingestion boundary.
